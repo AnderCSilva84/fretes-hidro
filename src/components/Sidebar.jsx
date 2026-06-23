@@ -9,6 +9,7 @@ import {
   PinIcon,
   PlusIcon,
   RouteIcon,
+  SearchIcon,
   ShieldIcon,
 } from './AppIcons.jsx'
 
@@ -20,6 +21,7 @@ const items = [
   { to: '/embarcacoes', label: 'Embarcacoes', icon: BoatIcon },
   { to: '/rotas-valores', label: 'Rotas e Valores', icon: RouteIcon },
   { to: '/encomendas', label: 'Encomendas', icon: PackageIcon },
+  { to: '/scanner-retirada', label: 'Scanner Retirada', icon: SearchIcon },
   { to: '/caixa', label: 'Caixa', icon: MoneyIcon },
 ]
 

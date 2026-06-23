@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import { PackageIcon, SearchIcon } from '../components/AppIcons.jsx'
 import Card from '../components/Card.jsx'
 import useAuth from '../context/useAuth.js'
 import { atualizarStatusEncomenda, getMovimentacoesPorCodigo, searchByCodigo } from '../services/firebase.js'
-import { abrirComprovante, obterQrCodeDataUrl } from '../utils/encomendaMedia.js'
+import { abrirComprovante, abrirReciboRetirada, obterQrCodeDataUrl } from '../utils/encomendaMedia.js'
+import { obterRemetenteNome } from '../utils/remetente.js'
 
 function formatarData(valor) {
   if (!valor) {
@@ -153,6 +154,14 @@ export default function Rastreio() {
     }
   }
 
+  async function handleAbrirReciboRetirada() {
+    if (!encomenda?.assinaturaRetiradaDataUrl) {
+      return
+    }
+
+    await abrirReciboRetirada(encomenda, '_blank')
+  }
+
   const podeDarBaixa = Boolean(user && encomenda && encomenda.status !== 'Entregue' && encomenda.status !== 'Cancelado')
 
   return (
@@ -191,7 +200,7 @@ export default function Rastreio() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs text-slate-500">Remetente</p>
-                    <p className="mt-1 font-semibold text-slate-900">{encomenda.remetenteNome}</p>
+                    <p className="mt-1 font-semibold text-slate-900">{obterRemetenteNome(encomenda.remetenteNome)}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-xs text-slate-500">Destinatario</p>
@@ -231,8 +240,29 @@ export default function Rastreio() {
                           Usuario logado pode concluir a retirada e registrar a encomenda como entregue.
                         </p>
                       </div>
-                      <Button type="button" onClick={handleMarcarEntregue} disabled={!podeDarBaixa || updatingDelivery}>
-                        {updatingDelivery ? 'Registrando...' : encomenda.status === 'Entregue' ? 'Ja entregue' : 'Dar baixa e marcar entregue'}
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          to={`/retirada/${encomenda.codigo}`}
+                          className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-[#1657d8] px-4 text-sm font-semibold text-white shadow-panel"
+                        >
+                          Assinatura de retirada
+                        </Link>
+                        <Button type="button" variant="secondary" onClick={handleMarcarEntregue} disabled={!podeDarBaixa || updatingDelivery}>
+                          {updatingDelivery ? 'Registrando...' : encomenda.status === 'Entregue' ? 'Ja entregue' : 'Dar baixa direta'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {encomenda.assinaturaRetiradaDataUrl ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Recibo assinado</p>
+                        <p className="mt-2 text-sm text-slate-600">Esta retirada ja possui assinatura gravada e o recibo pode ser reaberto.</p>
+                      </div>
+                      <Button type="button" variant="secondary" onClick={handleAbrirReciboRetirada}>
+                        Abrir recibo assinado
                       </Button>
                     </div>
                   </div>

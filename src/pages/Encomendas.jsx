@@ -7,6 +7,7 @@ import PageShell from '../components/PageShell.jsx'
 import useFirestoreCollection from '../hooks/useFirestoreCollection.js'
 import { atualizarStatusEncomenda, deleteCollectionDocument } from '../services/firebase.js'
 import { abrirComprovante, obterRastreioUrl } from '../utils/encomendaMedia.js'
+import { obterRemetenteNome } from '../utils/remetente.js'
 
 const statusOptions = ['Postado', 'Em transito', 'Chegou ao terminal', 'Entregue', 'Cancelado']
 
@@ -66,7 +67,7 @@ export default function Encomendas() {
                     </div>
                     <h3 className="text-xl font-bold text-slate-950">{item.destinatarioNome || 'Sem destinatario'}</h3>
                     <p className="text-sm text-slate-500">
-                      {item.remetenteNome || 'Sem remetente'} - {item.terminalOrigem || 'Sem origem'} {'->'} {item.terminalDestino || 'Sem destino'}
+                      {obterRemetenteNome(item.remetenteNome)} - {item.terminalOrigem || 'Sem origem'} {'->'} {item.terminalDestino || 'Sem destino'}
                     </p>
                     <p className="text-lg font-bold text-slate-900">R$ {Number(item.valorTotal || 0).toFixed(2)}</p>
                     <div className="flex flex-wrap items-center gap-3">

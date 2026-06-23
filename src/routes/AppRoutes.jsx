@@ -10,7 +10,9 @@ const Dashboard = lazy(() => import('../pages/Dashboard.jsx'))
 const Embarcacoes = lazy(() => import('../pages/Embarcacoes.jsx'))
 const Encomendas = lazy(() => import('../pages/Encomendas.jsx'))
 const NovaComanda = lazy(() => import('../pages/NovaComanda.jsx'))
+const RetiradaEntrega = lazy(() => import('../pages/RetiradaEntrega.jsx'))
 const RotasValores = lazy(() => import('../pages/RotasValores.jsx'))
+const ScannerRetirada = lazy(() => import('../pages/ScannerRetirada.jsx'))
 const Terminais = lazy(() => import('../pages/Terminais.jsx'))
 const Usuarios = lazy(() => import('../pages/Usuarios.jsx'))
 
@@ -35,6 +37,8 @@ export default function AppRoutes() {
           <Route path="/embarcacoes" element={<Embarcacoes />} />
           <Route path="/rotas-valores" element={<RotasValores />} />
           <Route path="/encomendas" element={<Encomendas />} />
+          <Route path="/scanner-retirada" element={<ScannerRetirada />} />
+          <Route path="/retirada/:codigo" element={<RetiradaEntrega />} />
           <Route path="/caixa" element={<Caixa />} />
         </Route>
         <Route element={<ProtectedRoute requiredPerfil="superadmin" />}>

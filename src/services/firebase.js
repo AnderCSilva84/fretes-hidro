@@ -28,6 +28,7 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth'
+import { obterRemetenteNome } from '../utils/remetente.js'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -513,8 +514,9 @@ export async function criarEncomenda(dados) {
     codigo,
     dataComanda: dados.dataComanda || '',
     horarioChegada: dados.horarioChegada || '',
+    horarioSaidaEmbarcacao: dados.horarioSaidaEmbarcacao || '',
     remetenteId: dados.remetenteId || '',
-    remetenteNome: dados.remetenteNome || '',
+    remetenteNome: obterRemetenteNome(dados.remetenteNome),
     remetenteTelefone: dados.remetenteTelefone || '',
     remetenteEmail: dados.remetenteEmail || '',
     operadorNome: dados.operadorNome || '',

@@ -1,4 +1,5 @@
 import { gerarEtiqueta } from './gerarEtiqueta.js'
+import { gerarReciboRetirada } from './gerarReciboRetirada.js'
 import { gerarQRCode, montarRastreioUrl } from './gerarQRCode.js'
 
 export function obterRastreioUrl(encomenda) {
@@ -35,6 +36,16 @@ export async function gerarComprovanteUrl(encomenda) {
 
 export async function abrirComprovante(encomenda, target = '_blank') {
   const pdfUrl = await gerarComprovanteUrl(encomenda)
+  const openedWindow = window.open(pdfUrl, target, 'noopener,noreferrer')
+
+  return {
+    pdfUrl,
+    opened: Boolean(openedWindow) || target === '_self',
+  }
+}
+
+export async function abrirReciboRetirada(encomenda, target = '_blank') {
+  const pdfUrl = await gerarReciboRetirada(encomenda)
   const openedWindow = window.open(pdfUrl, target, 'noopener,noreferrer')
 
   return {

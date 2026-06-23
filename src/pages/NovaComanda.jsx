@@ -6,6 +6,7 @@ import useAuth from '../context/useAuth.js'
 import { addCollectionDocument, criarEncomenda, gerarCodigoEncomenda, searchCollectionByField } from '../services/firebase.js'
 import { abrirComprovante } from '../utils/encomendaMedia.js'
 import { gerarQRCode, montarRastreioUrl } from '../utils/gerarQRCode.js'
+import { obterRemetenteNome } from '../utils/remetente.js'
 
 const emptyCliente = {
   nome: '',
@@ -29,6 +30,7 @@ function createInitialForm() {
   return {
     dataComanda: new Date().toISOString().slice(0, 10),
     horarioChegada: new Date().toTimeString().slice(0, 5),
+    horarioSaidaEmbarcacao: '',
     remetenteId: '',
     remetenteNome: '',
     remetenteDocumento: '',
@@ -81,15 +83,61 @@ function Card({ children, className = '' }) {
   )
 }
 
-function TopInfo({ icon, label, value }) {
+function CompactScheduleCard({ dataComanda, horarioPostagem, horarioSaidaEmbarcacao, onChange }) {
   return (
-    <div className="flex items-center gap-4 rounded-[1.75rem] bg-white/92 p-3 shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
-      <AppIcon>{icon}</AppIcon>
-      <div>
-        <p className="text-sm font-medium uppercase tracking-[0.04em] text-slate-500">{label}</p>
-        <p className="mt-1 text-[2rem] font-bold leading-none text-slate-950">{value}</p>
+    <Card className="border-blue-100 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(239,246,255,0.9))]">
+      <div className="flex items-start gap-4">
+        <AppIcon className="h-14 w-14">
+          <CalendarIcon />
+        </AppIcon>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Data</p>
+              <p className="text-base font-bold text-slate-950">{formatDateLabel(dataComanda)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Postagem</p>
+              <p className="text-base font-bold text-slate-950">{horarioPostagem || '--:--'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Saida embarcacao</p>
+              <p className="text-base font-bold text-slate-950">{horarioSaidaEmbarcacao || '--:--'}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Data</span>
+              <input
+                type="date"
+                value={dataComanda}
+                onChange={(event) => onChange('dataComanda', event.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Horario da postagem</span>
+              <input
+                type="time"
+                value={horarioPostagem}
+                onChange={(event) => onChange('horarioChegada', event.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Saida da embarcacao</span>
+              <input
+                type="time"
+                value={horarioSaidaEmbarcacao}
+                onChange={(event) => onChange('horarioSaidaEmbarcacao', event.target.value)}
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+          </div>
+        </div>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -319,7 +367,10 @@ function SummaryBlock({ form, total }) {
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5">
-        <SummaryItem label="Remetente" value={form.remetenteNome || 'Nao informado'} />
+        <SummaryItem label="Data" value={formatDateLabel(form.dataComanda)} />
+        <SummaryItem label="Horario da postagem" value={form.horarioChegada || '--:--'} />
+        <SummaryItem label="Saida da embarcacao" value={form.horarioSaidaEmbarcacao || '--:--'} />
+        <SummaryItem label="Remetente" value={obterRemetenteNome(form.remetenteNome)} />
         <SummaryItem label="Destino" value={form.terminalDestino || 'Nao informado'} />
         <SummaryItem label="Destinatario" value={form.destinatarioNome || 'Nao informado'} />
         <SummaryItem label="Tipo de documento" value={documentType} />
@@ -599,6 +650,7 @@ export default function NovaComanda() {
       const qr = await gerarQRCode(codigo)
       const created = await criarEncomenda({
         ...form,
+        remetenteNome: obterRemetenteNome(form.remetenteNome),
         codigo,
         qrCodeDataUrl: qr,
         rastreioUrl: montarRastreioUrl(codigo),
@@ -661,20 +713,17 @@ export default function NovaComanda() {
 
           <main className="flex-1 px-5 pb-6 pt-5">
             <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <TopInfo icon={<CalendarIcon />} label="Data" value={formatDateLabel(form.dataComanda)} />
-                <TopInfo icon={<ClockIcon />} label="Horario de chegada" value={form.horarioChegada || '--:--'} />
-              </div>
-
-              <div className="hidden">
-                <input type="date" value={form.dataComanda} onChange={(event) => updateForm('dataComanda', event.target.value)} />
-                <input type="time" value={form.horarioChegada} onChange={(event) => updateForm('horarioChegada', event.target.value)} />
-              </div>
+              <CompactScheduleCard
+                dataComanda={form.dataComanda}
+                horarioPostagem={form.horarioChegada}
+                horarioSaidaEmbarcacao={form.horarioSaidaEmbarcacao}
+                onChange={updateForm}
+              />
 
               <PersonCard
                 title="Remetente"
                 value={form.remetenteNome}
-                subtitle={form.remetenteDocumento || 'CPF/CNPJ (opcional)'}
+                subtitle={form.remetenteDocumento || 'Opcional. Se vazio, vai como Entregador'}
                 searchValue={form.remetenteNome}
                 loading={remetenteLoading}
                 suggestions={remetenteSugestoes}
@@ -805,8 +854,8 @@ export default function NovaComanda() {
             </form>
           </main>
 
-          <footer className="sticky bottom-0 mt-auto rounded-t-[2rem] border-t border-slate-200 bg-white/96 px-4 pb-4 pt-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur">
-            <div className="grid grid-cols-4 gap-2">
+          <footer className="sticky bottom-0 mt-auto rounded-t-[1.4rem] border-t border-slate-200/90 bg-white/94 px-3 pb-2 pt-2 shadow-[0_-8px_20px_rgba(15,23,42,0.06)] backdrop-blur">
+            <div className="grid grid-cols-4 gap-1.5">
               {bottomNav.map((item) => {
                 const Icon = item.icon
 
@@ -814,12 +863,12 @@ export default function NovaComanda() {
                   <Link
                     key={item.to}
                     to={item.to}
-                    className="flex flex-col items-center gap-2 rounded-2xl px-2 py-2 text-center"
+                    className="flex flex-col items-center gap-1 rounded-[1rem] px-1.5 py-1.5 text-center"
                   >
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.active ? 'bg-[#1c63e7] text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-[0.95rem] ${item.active ? 'bg-[#1c63e7] text-white' : 'bg-slate-100 text-slate-500'}`}>
                       <Icon />
                     </div>
-                    <span className={`text-sm font-semibold ${item.active ? 'text-[#1c63e7]' : 'text-slate-600'}`}>{item.label}</span>
+                    <span className={`text-[11px] font-semibold leading-none ${item.active ? 'text-[#1c63e7]' : 'text-slate-600'}`}>{item.label}</span>
                   </Link>
                 )
               })}
@@ -850,15 +899,6 @@ function CalendarIcon() {
     <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="5" width="18" height="16" rx="3" />
       <path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
-    </svg>
-  )
-}
-
-function ClockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v6l4 2" />
     </svg>
   )
 }

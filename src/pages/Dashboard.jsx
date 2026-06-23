@@ -5,6 +5,7 @@ import Card from '../components/Card.jsx'
 import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useFirestoreCollection from '../hooks/useFirestoreCollection.js'
+import { obterRemetenteNome } from '../utils/remetente.js'
 import { abrirComprovante, obterRastreioUrl } from '../utils/encomendaMedia.js'
 
 function StatCard({ label, value, hint }) {
@@ -99,7 +100,7 @@ export default function Dashboard() {
                 {recentOrders.map((item) => (
                   <tr key={item.id} className="border-t border-slate-100">
                     <td className="py-3 font-semibold text-[#1657d8]">{item.codigo}</td>
-                    <td className="py-3">{item.remetenteNome}</td>
+                    <td className="py-3">{obterRemetenteNome(item.remetenteNome)}</td>
                     <td className="py-3">{item.terminalDestino}</td>
                     <td className="py-3">{item.status}</td>
                     <td className="py-3">R$ {Number(item.valorTotal || 0).toFixed(2)}</td>
