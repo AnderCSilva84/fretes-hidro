@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700;800&display=swap');
+@import 'tailwindcss';
+
+:root {
+  color: #0f172a;
+  background:
+    radial-gradient(circle at top, rgba(28, 99, 231, 0.16), transparent 45%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 45%, #eef4ff 100%);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(28, 99, 231, 0.12), transparent 0 34%),
+    radial-gradient(circle at 80% 0%, rgba(21, 87, 216, 0.14), transparent 0 28%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 34%, #eef4ff 100%);
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Sora', sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(28, 99, 231, 0.22);
+}
+
+input,
+select,
+textarea {
+  outline: none;
+}
+
+button {
+  cursor: pointer;
+}
