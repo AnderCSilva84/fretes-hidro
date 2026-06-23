@@ -7,7 +7,7 @@ import Sidebar from './Sidebar.jsx'
 
 const bottomNav = [
   { to: '/dashboard', label: 'Inicio', icon: HomeIcon },
-  { to: '/nova-comanda', label: 'Novo', icon: PlusIcon },
+  { to: '/nova-comanda', label: 'Novo', icon: PlusIcon, primary: true },
   { to: '/encomendas', label: 'Lista', icon: ListIcon },
   { to: '/caixa', label: 'Caixa', icon: MoneyIcon },
 ]
@@ -57,6 +57,7 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
             {bottomNav.map((item) => {
               const Icon = item.icon
               const isActive = location.pathname === item.to
+              const isPrimary = item.primary
 
               return (
                 <Link
@@ -64,10 +65,18 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
                   to={item.to}
                   className="flex flex-col items-center gap-2 rounded-2xl px-2 py-2 text-center"
                 >
-                  <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${isActive ? 'bg-[#1657d8] text-white' : 'bg-slate-100 text-slate-500'}`}>
+                  <div
+                    className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
+                      isPrimary
+                        ? 'bg-[#1657d8] text-white shadow-[0_10px_24px_rgba(28,99,231,0.28)]'
+                        : isActive
+                          ? 'bg-[#1657d8] text-white'
+                          : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
                     <Icon />
                   </div>
-                  <span className={`text-sm font-semibold ${isActive ? 'text-[#1657d8]' : 'text-slate-600'}`}>{item.label}</span>
+                  <span className={`text-sm font-semibold ${isPrimary || isActive ? 'text-[#1657d8]' : 'text-slate-600'}`}>{item.label}</span>
                 </Link>
               )
             })}

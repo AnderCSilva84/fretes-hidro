@@ -4,6 +4,7 @@ import { ListIcon, MoneyIcon } from '../components/AppIcons.jsx'
 import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useFirestoreCollection from '../hooks/useFirestoreCollection.js'
+import { deleteCollectionDocument } from '../services/firebase.js'
 import { gerarCaixaPdf } from '../utils/gerarCaixaPdf.js'
 
 function normalizarData(valor) {
@@ -63,6 +64,7 @@ export default function Caixa() {
   const { items: movimentacoes } = useFirestoreCollection('movimentacoes')
   const [dataInicial, setDataInicial] = useState('')
   const [dataFinal, setDataFinal] = useState('')
+  const [deletingId, setDeletingId] = useState(null)
 
   const caixaFiltrado = useMemo(
     () => caixa.filter((item) => estaDentroDoPeriodo(item.criadoEm, dataInicial, dataFinal)),
@@ -75,6 +77,7 @@ export default function Caixa() {
   const totalEntradaFiltrado = caixaFiltrado
     .filter((item) => item.tipo === 'entrada')
     .reduce((sum, item) => sum + Number(item.valor || 0), 0)
+  const valorFaturadoFiltrado = totalEntradaFiltrado
 
   async function exportarPdf() {
     await gerarCaixaPdf({
@@ -82,7 +85,23 @@ export default function Caixa() {
       dataInicial,
       dataFinal,
       totalEntrada: totalEntradaFiltrado,
+      valorFaturado: valorFaturadoFiltrado,
     })
+  }
+
+  async function excluirLancamento(item) {
+    const confirmed = window.confirm(`Excluir o lancamento ${item.origem || 'sem descricao'}?`)
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingId(item.id)
+    try {
+      await deleteCollectionDocument('caixa', item.id)
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
@@ -158,7 +177,18 @@ export default function Caixa() {
                   <p className="text-sm text-slate-500">{item.encomendaCodigo || 'Sem codigo'}</p>
                   <p className="mt-1 text-xs text-slate-400">{formatarData(item.criadoEm)}</p>
                 </div>
-                <p className="text-lg font-bold text-slate-900">R$ {Number(item.valor || 0).toFixed(2)}</p>
+                <div className="flex flex-col items-start gap-3 md:items-end">
+                  <p className="text-lg font-bold text-slate-900">R$ {Number(item.valor || 0).toFixed(2)}</p>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    className="min-h-10 px-3 py-2 text-xs"
+                    disabled={deletingId === item.id}
+                    onClick={() => excluirLancamento(item)}
+                  >
+                    {deletingId === item.id ? 'Excluindo...' : 'Excluir'}
+                  </Button>
+                </div>
               </div>
             ))}
 

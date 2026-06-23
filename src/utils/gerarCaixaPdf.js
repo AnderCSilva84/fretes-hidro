@@ -24,7 +24,7 @@ function formatarData(valor) {
   }).format(data)
 }
 
-export async function gerarCaixaPdf({ itens, dataInicial, dataFinal, totalEntrada }) {
+export async function gerarCaixaPdf({ itens, dataInicial, dataFinal, totalEntrada, valorFaturado }) {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
 
@@ -39,9 +39,10 @@ export async function gerarCaixaPdf({ itens, dataInicial, dataFinal, totalEntrad
   pdf.setFontSize(11)
   pdf.text(`Periodo: ${dataInicial || 'inicio'} ate ${dataFinal || 'hoje'}`, 14, 34)
   pdf.text(`Entradas no periodo: R$ ${Number(totalEntrada || 0).toFixed(2)}`, 14, 42)
-  pdf.text(`Quantidade de registros: ${itens.length}`, 14, 50)
+  pdf.text(`Valor faturado no periodo: R$ ${Number(valorFaturado || 0).toFixed(2)}`, 14, 50)
+  pdf.text(`Quantidade de registros: ${itens.length}`, 14, 58)
 
-  let y = 62
+  let y = 70
 
   for (const item of itens) {
     if (y > 270) {

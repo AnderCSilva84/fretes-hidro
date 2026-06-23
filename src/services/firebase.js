@@ -676,7 +676,7 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
   return createdUser
 }
 
-export async function atualizarStatusEncomenda(encomenda, novoStatus, descricao = '') {
+export async function atualizarStatusEncomenda(encomenda, novoStatus, descricao = '', extraUpdates = {}) {
   const statusAtualizado = String(novoStatus || '').trim() || 'Postado'
   const observacao = descricao.trim()
   const timestamp = new Date().toISOString()
@@ -684,6 +684,7 @@ export async function atualizarStatusEncomenda(encomenda, novoStatus, descricao 
   if (isConfigured && db) {
     await updateDoc(doc(db, 'encomendas', encomenda.id), {
       status: statusAtualizado,
+      ...extraUpdates,
       atualizadoEm: serverTimestamp(),
     })
 
@@ -703,6 +704,7 @@ export async function atualizarStatusEncomenda(encomenda, novoStatus, descricao 
       ? {
           ...item,
           status: statusAtualizado,
+          ...extraUpdates,
           atualizadoEm: timestamp,
         }
       : item,

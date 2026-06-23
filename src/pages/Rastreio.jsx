@@ -3,7 +3,8 @@ import { useParams } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import { PackageIcon, SearchIcon } from '../components/AppIcons.jsx'
 import Card from '../components/Card.jsx'
-import { getMovimentacoesPorCodigo, searchByCodigo } from '../services/firebase.js'
+import useAuth from '../context/useAuth.js'
+import { atualizarStatusEncomenda, getMovimentacoesPorCodigo, searchByCodigo } from '../services/firebase.js'
 import { abrirComprovante, obterQrCodeDataUrl } from '../utils/encomendaMedia.js'
 
 function formatarData(valor) {
@@ -20,6 +21,7 @@ function formatarData(valor) {
 
 export default function Rastreio() {
   const { codigo } = useParams()
+  const { user } = useAuth()
   const [encomenda, setEncomenda] = useState(null)
   const [movimentacoes, setMovimentacoes] = useState([])
   const [loading, setLoading] = useState(true)
@@ -27,6 +29,7 @@ export default function Rastreio() {
   const [autoOpenFailed, setAutoOpenFailed] = useState(false)
   const [openingPdf, setOpeningPdf] = useState(false)
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('')
+  const [updatingDelivery, setUpdatingDelivery] = useState(false)
   const autoOpenedCodigoRef = useRef('')
 
   useEffect(() => {
@@ -59,7 +62,7 @@ export default function Rastreio() {
     let ativo = true
 
     async function abrirPdfAutomaticamente() {
-      if (!encomenda || autoOpenedCodigoRef.current === encomenda.codigo) {
+      if (!encomenda || user || autoOpenedCodigoRef.current === encomenda.codigo) {
         return
       }
 
@@ -91,7 +94,7 @@ export default function Rastreio() {
     return () => {
       ativo = false
     }
-  }, [encomenda, qrCodeDataUrl])
+  }, [encomenda, qrCodeDataUrl, user])
 
   async function handleOpenPdf() {
     if (!encomenda) {
@@ -115,6 +118,42 @@ export default function Rastreio() {
       setOpeningPdf(false)
     }
   }
+
+  async function handleMarcarEntregue() {
+    if (!encomenda) {
+      return
+    }
+
+    setUpdatingDelivery(true)
+
+    try {
+      const operador = user?.nome || user?.displayName || user?.email || 'Operador'
+      const operadorEmail = user?.email || ''
+      const entregueEm = new Date().toISOString()
+      await atualizarStatusEncomenda(
+        encomenda,
+        'Entregue',
+        `Encomenda entregue ao destinatario por retirada no balcao. Baixa realizada por ${operador}.`,
+        {
+          entregueEm,
+          operadorEntregaNome: operador,
+          operadorEntregaEmail: operadorEmail,
+        },
+      )
+
+      const [found, movs] = await Promise.all([
+        searchByCodigo(encomenda.codigo),
+        getMovimentacoesPorCodigo(encomenda.codigo),
+      ])
+
+      setEncomenda(found)
+      setMovimentacoes(movs)
+    } finally {
+      setUpdatingDelivery(false)
+    }
+  }
+
+  const podeDarBaixa = Boolean(user && encomenda && encomenda.status !== 'Entregue' && encomenda.status !== 'Cancelado')
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.16),transparent_32%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] px-4 py-8 lg:px-8">
@@ -171,7 +210,33 @@ export default function Rastreio() {
                   <p className="text-xs text-slate-500">Status atual</p>
                   <p className="mt-1 text-lg font-bold text-[#0a2d61]">{encomenda.status}</p>
                   <p className="mt-2 text-sm text-slate-600">Criado em {formatarData(encomenda.criadoEm)}</p>
+                  {encomenda.entregueEm ? (
+                    <div className="mt-3 rounded-2xl bg-white/80 px-3 py-3 text-sm text-slate-700">
+                      <p>
+                        <span className="font-semibold">Retirada:</span> {formatarData(encomenda.entregueEm)}
+                      </p>
+                      <p className="mt-1">
+                        <span className="font-semibold">Baixa por:</span>{' '}
+                        {encomenda.operadorEntregaNome || encomenda.operadorEntregaEmail || 'Nao informado'}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
+                {user ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Baixa de entrega</p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          Usuario logado pode concluir a retirada e registrar a encomenda como entregue.
+                        </p>
+                      </div>
+                      <Button type="button" onClick={handleMarcarEntregue} disabled={!podeDarBaixa || updatingDelivery}>
+                        {updatingDelivery ? 'Registrando...' : encomenda.status === 'Entregue' ? 'Ja entregue' : 'Dar baixa e marcar entregue'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="rounded-2xl border border-blue-100 bg-white p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
