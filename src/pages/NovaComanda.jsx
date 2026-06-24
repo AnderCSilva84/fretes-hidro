@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
-import { addCollectionDocument, criarEncomenda, gerarCodigoEncomenda, searchCollectionByField } from '../services/firebase.js'
+import useCollectionOnce from '../hooks/useCollectionOnce.js'
+import { addCollectionDocument, criarEncomenda, gerarCodigoEncomenda, searchCollectionByField, updateCollectionDocument } from '../services/firebase.js'
 import { abrirComprovante } from '../utils/encomendaMedia.js'
 import { gerarQRCode, montarRastreioUrl } from '../utils/gerarQRCode.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
+import { SYSTEM_NAME } from '../utils/systemConfig.js'
 
 const emptyCliente = {
   nome: '',
@@ -16,7 +18,6 @@ const emptyCliente = {
   cidade: '',
 }
 
-const destinosPadrao = ['Belem', 'Barcarena', 'Sao Francisco']
 const documentOptions = ['Nota fiscal', 'Valor declarado']
 const freightChargeOptions = ['Pago', 'A receber']
 const bottomNav = [
@@ -31,6 +32,12 @@ function createInitialForm() {
     dataComanda: new Date().toISOString().slice(0, 10),
     horarioChegada: new Date().toTimeString().slice(0, 5),
     horarioSaidaEmbarcacao: '',
+    horarioSaidaManual: false,
+    previsaoChegada: '',
+    rotaId: '',
+    linhaNome: '',
+    embarcacaoId: '',
+    embarcacaoNome: '',
     remetenteId: '',
     remetenteNome: '',
     remetenteDocumento: '',
@@ -40,12 +47,13 @@ function createInitialForm() {
     destinatarioNome: '',
     destinatarioTelefone: '',
     destinatarioEmail: '',
-    terminalDestino: 'Sao Francisco',
+    terminalDestino: '',
     possuiNotaFiscal: false,
     valorDeclaradoAtivo: true,
     valorMercadoria: '',
     freteCobranca: 'A receber',
     valorFrete: '',
+    valorFreteManual: false,
     descricao: '',
     quantidade: 1,
     peso: '',
@@ -67,9 +75,80 @@ function formatDateLabel(value) {
   return `${day}/${month}/${year}`
 }
 
+function formatarPrevisaoChegada(dataComanda, horarioSaida, duracaoMinutos) {
+  if (!dataComanda || !horarioSaida || !Number.isFinite(Number(duracaoMinutos)) || Number(duracaoMinutos) <= 0) {
+    return ''
+  }
+
+  const [year, month, day] = String(dataComanda).split('-').map(Number)
+  const [hour, minute] = String(horarioSaida).split(':').map(Number)
+
+  if (![year, month, day, hour, minute].every(Number.isFinite)) {
+    return ''
+  }
+
+  const chegada = new Date(year, month - 1, day, hour, minute)
+  chegada.setMinutes(chegada.getMinutes() + Number(duracaoMinutos))
+
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(chegada)
+}
+
+function normalizarHorariosPartida(embarcacao) {
+  const horarios = Array.isArray(embarcacao?.horariosPartida) && embarcacao.horariosPartida.length
+    ? embarcacao.horariosPartida
+    : embarcacao?.horarioPartidaPadrao
+      ? [embarcacao.horarioPartidaPadrao]
+      : []
+
+  return horarios.map((item) => String(item || '').trim()).filter(Boolean).sort()
+}
+
+function escolherProximaPartida(horarioEntrada, horariosPartida) {
+  const horarios = horariosPartida.map((item) => String(item || '').trim()).filter(Boolean).sort()
+
+  if (!horarios.length) {
+    return ''
+  }
+
+  if (!horarioEntrada) {
+    return horarios[0]
+  }
+
+  const [horaEntrada, minutoEntrada] = String(horarioEntrada).split(':').map(Number)
+  const totalEntrada = (Number.isFinite(horaEntrada) ? horaEntrada : 0) * 60 + (Number.isFinite(minutoEntrada) ? minutoEntrada : 0)
+
+  const proximo = horarios.find((item) => {
+    const [hora, minuto] = item.split(':').map(Number)
+    const totalHorario = (Number.isFinite(hora) ? hora : 0) * 60 + (Number.isFinite(minuto) ? minuto : 0)
+    return totalHorario >= totalEntrada
+  })
+
+  return proximo || horarios[0]
+}
+
+function obterDuracaoLinhaMinutos(linha) {
+  if (!linha) {
+    return 0
+  }
+
+  if (Number.isFinite(Number(linha.duracaoMinutos)) && Number(linha.duracaoMinutos) > 0) {
+    return Number(linha.duracaoMinutos)
+  }
+
+  const encontrado = String(linha.tempoEstimado || '').match(/\d+/)
+  return encontrado ? Number(encontrado[0]) : 0
+}
+
+function normalizarBuscaCliente(valor) {
+  return String(valor || '').trim().toLowerCase()
+}
+
 function AppIcon({ children, className = '' }) {
   return (
-    <div className={`flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-[#1c63e7] ${className}`}>
+    <div className={`flex h-16 w-16 shrink-0 items-center justify-center self-start rounded-full bg-blue-50 text-[#1c63e7] ${className}`}>
       {children}
     </div>
   )
@@ -83,55 +162,139 @@ function Card({ children, className = '' }) {
   )
 }
 
-function CompactScheduleCard({ dataComanda, horarioPostagem, horarioSaidaEmbarcacao, onChange }) {
+function CardHeader({ icon, title, children, iconClassName = '' }) {
+  return (
+    <div className="flex items-center gap-4">
+      <AppIcon className={`h-[5.25rem] w-[5.25rem] bg-[#edf4ff] ${iconClassName}`}>{icon}</AppIcon>
+      <div className="min-w-0 flex-1 pr-2">
+        <p className="text-[1.05rem] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</p>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// eslint-disable-next-line no-unused-vars
+function CompactScheduleCard({ dataComanda, horarioPostagem, horarioSaidaEmbarcacao, previsaoChegada, onChange }) {
   return (
     <Card className="border-blue-100 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(239,246,255,0.9))]">
-      <div className="flex items-start gap-4">
-        <AppIcon className="h-14 w-14">
+      <div className="flex flex-col items-start gap-4">
+        <AppIcon className="h-14 w-14 sm:h-16 sm:w-16">
           <CalendarIcon />
         </AppIcon>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <div>
+        <div className="w-full text-left">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Data</p>
               <p className="text-base font-bold text-slate-950">{formatDateLabel(dataComanda)}</p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Postagem</p>
               <p className="text-base font-bold text-slate-950">{horarioPostagem || '--:--'}</p>
             </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Saida embarcacao</p>
+            <div className="col-span-2 min-w-0">
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">SAÍDA EMBARCAÇÃO</p>
               <p className="text-base font-bold text-slate-950">{horarioSaidaEmbarcacao || '--:--'}</p>
+            </div>
+            <div className="col-span-2 min-w-0">
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Previsao de chegada</p>
+              <p className="text-base font-bold text-[#1657d8]">{previsaoChegada || '--/--/---- --:--'}</p>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <label className="space-y-1">
+          <div className="mt-5 grid grid-cols-1 gap-x-3 gap-y-4 sm:grid-cols-2">
+            <label className="col-span-2 space-y-1">
               <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Data</span>
               <input
                 type="date"
                 value={dataComanda}
                 onChange={(event) => onChange('dataComanda', event.target.value)}
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                className="block h-8 min-w-0 w-full max-w-full overflow-hidden rounded-[0.95rem] border border-slate-200 bg-white px-2 text-[0.72rem] font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 sm:h-9 sm:px-2.5 sm:text-[0.8rem]"
               />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Horario da postagem</span>
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Postagem</span>
               <input
                 type="time"
                 value={horarioPostagem}
                 onChange={(event) => onChange('horarioChegada', event.target.value)}
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                className="block h-7 min-w-0 w-full max-w-full overflow-hidden rounded-[0.9rem] border border-slate-200 bg-white px-2 text-[0.62rem] font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 sm:h-8 sm:px-2.5 sm:text-[0.72rem]"
               />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Saida da embarcacao</span>
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">SAÍDA EMBARCAÇÃO</span>
               <input
                 type="time"
                 value={horarioSaidaEmbarcacao}
                 onChange={(event) => onChange('horarioSaidaEmbarcacao', event.target.value)}
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                className="block h-9 min-w-0 w-full max-w-full overflow-hidden rounded-[1rem] border border-slate-200 bg-white px-2.5 text-[0.8rem] font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 sm:h-10 sm:px-3 sm:text-[0.88rem]"
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function CompactScheduleCardRefined({ dataComanda, horarioPostagem, horarioSaidaEmbarcacao, previsaoChegada, onChange }) {
+  return (
+    <Card className="border-blue-100 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(239,246,255,0.9))]">
+      <div className="space-y-5 text-left">
+        <div className="flex items-start gap-4">
+          <AppIcon className="h-20 w-20 bg-[#edf4ff]">
+            <CalendarIcon />
+          </AppIcon>
+
+          <div className="min-w-0 flex-1">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Data</p>
+                <p className="mt-1 text-[1.05rem] font-bold leading-none text-slate-950">{formatDateLabel(dataComanda)}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Postagem</p>
+                <p className="mt-1 text-[1.05rem] font-bold leading-none text-slate-950">{horarioPostagem || '--:--'}</p>
+              </div>
+              <div className="col-span-2 min-w-0">
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Saida embarcacao</p>
+                <p className="mt-1 text-[1.05rem] font-bold leading-none text-slate-950">{horarioSaidaEmbarcacao || '--:--'}</p>
+              </div>
+              <div className="col-span-2 min-w-0">
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Previsao de chegada</p>
+                <p className="mt-1 text-[1.05rem] font-bold leading-none text-[#1657d8]">{previsaoChegada || '--/--/---- --:--'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-blue-100/80 pt-4">
+          <div className="grid grid-cols-1 gap-x-3 gap-y-4 sm:grid-cols-2">
+            <label className="col-span-2 space-y-1">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Data</span>
+              <input
+                type="date"
+                value={dataComanda}
+                onChange={(event) => onChange('dataComanda', event.target.value)}
+                className="block h-10 min-w-0 w-full max-w-full overflow-hidden rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.92rem] font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Postagem</span>
+              <input
+                type="time"
+                value={horarioPostagem}
+                onChange={(event) => onChange('horarioChegada', event.target.value)}
+                className="block h-10 min-w-0 w-full max-w-full overflow-hidden rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.92rem] font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Saida embarcacao</span>
+              <input
+                type="time"
+                value={horarioSaidaEmbarcacao}
+                onChange={(event) => onChange('horarioSaidaEmbarcacao', event.target.value)}
+                className="block h-10 min-w-0 w-full max-w-full overflow-hidden rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.92rem] font-semibold text-slate-900 outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
               />
             </label>
           </div>
@@ -146,83 +309,85 @@ function PersonCard({
   value,
   subtitle,
   searchValue,
+  phoneValue,
+  emailValue,
   loading,
   suggestions,
   onSearchChange,
+  onPhoneChange,
+  onEmailChange,
   onPick,
-  onClear,
   onOpenQuickAdd,
 }) {
   return (
-    <Card>
-      <div className="flex items-start gap-4">
-        <AppIcon>
-          <PersonIcon />
-        </AppIcon>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium uppercase tracking-[0.04em] text-slate-500">{title}</p>
-              <p className="mt-1 text-[1.05rem] font-bold text-slate-950">{value || 'Selecionar'}</p>
-              <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClear}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
-                aria-label={`Limpar ${title}`}
-              >
-                <CloseIcon />
-              </button>
-              <span className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400">
-                <ChevronDownIcon />
-              </span>
-            </div>
+    <Card className="px-6 py-6">
+      <div className="w-full">
+        <div className="flex items-start gap-4">
+          <AppIcon className="h-[5.25rem] w-[5.25rem] bg-[#edf4ff]">
+            <PersonIcon />
+          </AppIcon>
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <p className="text-[1.05rem] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</p>
+            <p className="mt-2 block min-w-0 text-[1.2rem] font-bold leading-snug text-slate-950 sm:text-[1.35rem]">{value || 'Selecionar'}</p>
+            <p className="mt-2 max-w-[18rem] text-sm leading-relaxed text-slate-500">{subtitle}</p>
           </div>
+        </div>
 
-          <div className="mt-4 space-y-3">
+        <div className="mx-auto mt-4 w-full max-w-[28rem] space-y-3 text-left">
+          <input
+            value={searchValue}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Buscar ou digitar nome"
+            className="h-10 w-full min-w-0 max-w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-3 text-[0.9rem] font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100"
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <input
-              value={searchValue}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Buscar ou digitar nome"
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100"
+              value={phoneValue}
+              onChange={(event) => onPhoneChange(event.target.value)}
+              placeholder="Telefone"
+              className="h-10 w-full min-w-0 max-w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-3 text-[0.85rem] font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100"
             />
-
-            {loading ? <p className="text-sm text-slate-500">Buscando...</p> : null}
-
-            {suggestions.length > 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
-                {suggestions.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onPick(item)}
-                    className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-white"
-                  >
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-900">{item.nome}</span>
-                <span className="block text-xs text-slate-500">{item.email || item.documento || item.telefone || 'Cadastro rapido'}</span>
-                    </span>
-                    <span className="text-xs font-bold uppercase tracking-[0.06em] text-[#1c63e7]">Usar</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <input
+              value={emailValue}
+              type="email"
+              onChange={(event) => onEmailChange(event.target.value)}
+              placeholder="E-mail"
+              className="h-10 w-full min-w-0 max-w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-3 text-[0.85rem] font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100"
+            />
           </div>
 
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              onClick={onOpenQuickAdd}
-              className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-[0.03em] text-[#1c63e7]"
-            >
-              <PlusSmallIcon />
-              Novo {title}
-            </button>
-          </div>
+          {loading ? <p className="text-sm text-slate-500">Buscando...</p> : null}
+
+          {suggestions.length > 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
+              {suggestions.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onPick(item)}
+                  className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-white"
+                >
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-900">{item.nome}</span>
+                    <span className="block text-xs text-slate-500">{item.email || item.documento || item.telefone || 'Cadastro rapido'}</span>
+                  </span>
+                  <span className="text-xs font-bold uppercase tracking-[0.06em] text-[#1c63e7]">Usar</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mx-auto mt-4 flex w-full max-w-[28rem] justify-end">
+          <button
+            type="button"
+            onClick={onOpenQuickAdd}
+            className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-[0.03em] text-[#1c63e7]"
+          >
+            <PlusSmallIcon />
+            Novo {title}
+          </button>
         </div>
       </div>
     </Card>
@@ -231,42 +396,31 @@ function PersonCard({
 
 function SelectCard({ title, value, options, onChange }) {
   return (
-    <Card>
-      <div className="flex items-center gap-4">
-        <AppIcon>
-          <PinIcon />
-        </AppIcon>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium uppercase tracking-[0.04em] text-slate-500">{title}</p>
-              <p className="mt-1 text-[1.05rem] font-bold text-slate-950">{value}</p>
-            </div>
-            <span className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400">
-              <ChevronDownIcon />
-            </span>
-          </div>
+    <Card className="px-6 py-6">
+      <div className="w-full">
+        <CardHeader icon={<PinIcon />} title={title}>
+          <p className="mt-2 text-[1.35rem] font-bold leading-tight text-slate-950">{value}</p>
+        </CardHeader>
 
-          <div className="mt-4 grid grid-cols-1 gap-2">
-            {options.map((option) => {
-              const active = value === option
+        <div className="mx-auto mt-4 grid w-full max-w-[28rem] grid-cols-1 gap-2 text-left">
+          {options.map((option) => {
+            const active = value === option
 
-              return (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => onChange(option)}
-                  className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold transition ${
-                    active
-                      ? 'border-[#1c63e7] bg-blue-50 text-[#1549b3]'
-                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
-                  }`}
-                >
-                  {option}
-                </button>
-              )
-            })}
-          </div>
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => onChange(option)}
+                className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold transition ${
+                  active
+                    ? 'border-[#1c63e7] bg-blue-50 text-[#1549b3]'
+                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
+                }`}
+              >
+                {option}
+              </button>
+            )
+          })}
         </div>
       </div>
     </Card>
@@ -275,12 +429,11 @@ function SelectCard({ title, value, options, onChange }) {
 
 function SegmentedChoice({ title, icon, options, activeValues, onToggle, single = false }) {
   return (
-    <Card>
-      <div className="flex items-start gap-4">
-        <AppIcon>{icon}</AppIcon>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium uppercase tracking-[0.04em] text-slate-500">{title}</p>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+    <Card className="px-6 py-6">
+      <div className="w-full">
+        <CardHeader icon={icon} title={title} />
+        <div className="mt-4 w-full">
+          <div className="overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
             <div className="grid grid-cols-2">
               {options.map((option, index) => {
                 const active = activeValues.includes(option)
@@ -290,14 +443,14 @@ function SegmentedChoice({ title, icon, options, activeValues, onToggle, single 
                     key={option}
                     type="button"
                     onClick={() => onToggle(option, single)}
-                    className={`flex min-h-16 items-center gap-3 px-5 text-left text-base font-semibold transition ${
+                    className={`flex min-h-[3.2rem] items-center justify-center gap-2 px-3 py-2 text-left text-[0.78rem] font-medium transition sm:min-h-[3.5rem] ${
                       index === 0 ? 'border-r border-slate-200' : ''
-                    } ${active ? 'bg-blue-50 text-[#1549b3]' : 'bg-white text-slate-800 hover:bg-slate-50'}`}
+                    } ${active ? 'bg-[#edf4ff] text-[#1c63e7]' : 'bg-white text-slate-900 hover:bg-slate-50'}`}
                   >
-                    <span className={`flex h-7 w-7 items-center justify-center rounded-full border-2 ${active ? 'border-[#1c63e7]' : 'border-slate-300'}`}>
-                      {active ? <span className="h-3.5 w-3.5 rounded-full bg-[#1c63e7]" /> : null}
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${active ? 'border-[#1c63e7]' : 'border-slate-300'}`}>
+                      {active ? <span className="h-2 w-2 rounded-full bg-[#1c63e7]" /> : null}
                     </span>
-                    {option}
+                    <span className="max-w-[9ch] leading-none">{option}</span>
                   </button>
                 )
               })}
@@ -311,11 +464,10 @@ function SegmentedChoice({ title, icon, options, activeValues, onToggle, single 
 
 function AmountCard({ title, value, onChange, large = false, icon }) {
   return (
-    <Card className={large ? '' : 'h-full'}>
-      <div className="flex items-center gap-4">
-        <AppIcon>{icon}</AppIcon>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium uppercase tracking-[0.04em] text-slate-500">{title}</p>
+    <Card className={`${large ? '' : 'h-full'} px-6 py-6`}>
+      <div className="w-full">
+        <CardHeader icon={icon} title={title} />
+        <div className="mx-auto mt-2 w-full max-w-[30rem]">
           <input
             type="number"
             step="0.01"
@@ -323,7 +475,7 @@ function AmountCard({ title, value, onChange, large = false, icon }) {
             value={value}
             onChange={(event) => onChange(event.target.value)}
             placeholder="0,00"
-            className={`mt-2 w-full border-none bg-transparent p-0 font-bold text-slate-900 outline-none ${large ? 'text-[2.25rem]' : 'text-[2rem]'}`}
+            className={`mt-1 h-16 w-full rounded-[1.6rem] border border-slate-200 bg-white px-5 text-center font-bold text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 ${large ? 'text-[2.5rem]' : 'text-[2.2rem]'}`}
           />
         </div>
       </div>
@@ -333,19 +485,16 @@ function AmountCard({ title, value, onChange, large = false, icon }) {
 
 function ObservationsCard({ value, onChange }) {
   return (
-    <Card>
-      <div className="flex items-start gap-4">
-        <AppIcon>
-          <NoteIcon />
-        </AppIcon>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium uppercase tracking-[0.04em] text-slate-500">Observacoes</p>
+    <Card className="px-6 py-6">
+      <div className="w-full">
+        <CardHeader icon={<NoteIcon />} title="Observacoes" />
+        <div className="mx-auto mt-4 w-full max-w-[28rem]">
           <textarea
             value={value}
             onChange={(event) => onChange(event.target.value)}
             rows={3}
             placeholder="Ex.: informacoes adicionais..."
-            className="mt-2 w-full resize-none border-none bg-transparent p-0 text-[1.15rem] font-medium text-slate-900 outline-none placeholder:text-slate-400"
+            className="mt-3 w-full resize-none border-none bg-transparent p-0 text-center text-[1.15rem] font-medium text-slate-900 outline-none placeholder:text-slate-400"
           />
         </div>
       </div>
@@ -353,7 +502,7 @@ function ObservationsCard({ value, onChange }) {
   )
 }
 
-function SummaryBlock({ form, total }) {
+function SummaryBlock({ form, total, horarioSaidaEfetivo, previsaoChegada, embarcacaoNome }) {
   const documentType = form.valorDeclaradoAtivo ? 'Valor Declarado' : form.possuiNotaFiscal ? 'Nota Fiscal' : 'Nao definido'
 
   return (
@@ -369,8 +518,11 @@ function SummaryBlock({ form, total }) {
       <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5">
         <SummaryItem label="Data" value={formatDateLabel(form.dataComanda)} />
         <SummaryItem label="Horario da postagem" value={form.horarioChegada || '--:--'} />
-        <SummaryItem label="Saida da embarcacao" value={form.horarioSaidaEmbarcacao || '--:--'} />
+        <SummaryItem label="Saida da embarcacao" value={horarioSaidaEfetivo || '--:--'} />
+        <SummaryItem label="Previsao de chegada" value={previsaoChegada || 'Nao calculada'} />
         <SummaryItem label="Remetente" value={obterRemetenteNome(form.remetenteNome)} />
+        <SummaryItem label="Embarcacao" value={embarcacaoNome || 'Nao informada'} />
+        <SummaryItem label="Linha" value={form.linhaNome || 'Nao informada'} />
         <SummaryItem label="Destino" value={form.terminalDestino || 'Nao informado'} />
         <SummaryItem label="Destinatario" value={form.destinatarioNome || 'Nao informado'} />
         <SummaryItem label="Tipo de documento" value={documentType} />
@@ -417,26 +569,26 @@ function QuickAddPanel({ target, form, onChange, onSave, onCancel }) {
           value={form.nome}
           onChange={(event) => onChange('nome', event.target.value)}
           placeholder="Nome"
-          className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-base font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+          className="h-10 rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.9rem] font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
         />
         <input
           value={form.documento}
           onChange={(event) => onChange('documento', event.target.value)}
           placeholder="CPF/CNPJ"
-          className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-base font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+          className="h-10 rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.9rem] font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
         />
         <input
           value={form.email}
           onChange={(event) => onChange('email', event.target.value)}
           placeholder="E-mail"
           type="email"
-          className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-base font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+          className="h-10 rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.9rem] font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
         />
         <input
           value={form.telefone}
           onChange={(event) => onChange('telefone', event.target.value)}
           placeholder="Telefone"
-          className="h-12 rounded-2xl border border-slate-200 bg-white px-4 text-base font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+          className="h-10 rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.9rem] font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
         />
       </div>
 
@@ -454,6 +606,10 @@ function QuickAddPanel({ target, form, onChange, onSave, onCancel }) {
 
 export default function NovaComanda() {
   const { user } = useAuth()
+  const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
+  const empresaNome = user?.empresaNome || ''
+  const { items: rotasValores } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
+  const { items: embarcacoes } = useCollectionOnce('embarcacoes', { empresaId, empresaNome })
   const [form, setForm] = useState(createInitialForm)
   const [remetenteSugestoes, setRemetenteSugestoes] = useState([])
   const [destinatarioSugestoes, setDestinatarioSugestoes] = useState([])
@@ -464,8 +620,43 @@ export default function NovaComanda() {
   const [resultado, setResultado] = useState(null)
   const [qrCode, setQrCode] = useState('')
   const [loading, setLoading] = useState(false)
+  const clientesBuscaCacheRef = useRef(new Map())
 
   const totalFrete = Number(form.valorFrete || 0)
+  const linhaOptions = useMemo(
+    () => rotasValores.map((item) => `${item.origem} - ${item.destino}`).filter(Boolean),
+    [rotasValores],
+  )
+  const embarcacaoOptions = useMemo(
+    () => embarcacoes.map((item) => item.nome).filter(Boolean),
+    [embarcacoes],
+  )
+  const embarcacaoSelecionada = useMemo(() => {
+    if (form.embarcacaoNome) {
+      return embarcacoes.find((item) => item.nome === form.embarcacaoNome) || null
+    }
+
+    return embarcacoes[0] || null
+  }, [embarcacoes, form.embarcacaoNome])
+  const horariosPartidaEmbarcacao = useMemo(
+    () => normalizarHorariosPartida(embarcacaoSelecionada),
+    [embarcacaoSelecionada],
+  )
+  const horarioSaidaSugerido = useMemo(
+    () => escolherProximaPartida(form.horarioChegada, horariosPartidaEmbarcacao),
+    [form.horarioChegada, horariosPartidaEmbarcacao],
+  )
+  const horarioSaidaEfetivo = form.horarioSaidaManual
+    ? form.horarioSaidaEmbarcacao
+    : form.horarioSaidaEmbarcacao || horarioSaidaSugerido
+  const linhaSelecionada = useMemo(
+    () => rotasValores.find((item) => `${item.origem} - ${item.destino}` === form.linhaNome) || null,
+    [form.linhaNome, rotasValores],
+  )
+  const previsaoChegadaCalculada = useMemo(
+    () => formatarPrevisaoChegada(form.dataComanda, horarioSaidaEfetivo, obterDuracaoLinhaMinutos(linhaSelecionada)),
+    [form.dataComanda, horarioSaidaEfetivo, linhaSelecionada],
+  )
   const documentSelection = useMemo(() => {
     const items = []
     if (form.possuiNotaFiscal) items.push('Nota fiscal')
@@ -473,60 +664,180 @@ export default function NovaComanda() {
     return items
   }, [form.possuiNotaFiscal, form.valorDeclaradoAtivo])
 
+  function salvarBuscaNoCache(term, items) {
+    const normalizedTerm = normalizarBuscaCliente(term)
+
+    if (!normalizedTerm) {
+      return
+    }
+
+    clientesBuscaCacheRef.current.set(normalizedTerm, items)
+  }
+
+  function buscarDoCache(term) {
+    const normalizedTerm = normalizarBuscaCliente(term)
+
+    if (!normalizedTerm) {
+      return []
+    }
+
+    if (clientesBuscaCacheRef.current.has(normalizedTerm)) {
+      return clientesBuscaCacheRef.current.get(normalizedTerm) || []
+    }
+
+    const keys = [...clientesBuscaCacheRef.current.keys()].sort((a, b) => b.length - a.length)
+    const prefixKey = keys.find((key) => normalizedTerm.startsWith(key))
+
+    if (!prefixKey) {
+      return null
+    }
+
+    const baseItems = clientesBuscaCacheRef.current.get(prefixKey) || []
+    const filteredItems = baseItems.filter((item) => normalizarBuscaCliente(item.nome).includes(normalizedTerm)).slice(0, 5)
+    clientesBuscaCacheRef.current.set(normalizedTerm, filteredItems)
+    return filteredItems
+  }
+
+  function salvarClienteNosCaches(cliente) {
+    const normalizedName = normalizarBuscaCliente(cliente?.nome)
+
+    if (!normalizedName) {
+      return
+    }
+
+    const prefixes = new Set([normalizedName])
+    for (let size = 2; size <= normalizedName.length; size += 1) {
+      prefixes.add(normalizedName.slice(0, size))
+    }
+
+    for (const prefix of prefixes) {
+      const items = clientesBuscaCacheRef.current.get(prefix) || []
+      const semDuplicado = items.filter((item) => item.id !== cliente.id)
+      clientesBuscaCacheRef.current.set(prefix, [cliente, ...semDuplicado].slice(0, 5))
+    }
+  }
+
   useEffect(() => {
     let active = true
     const timeout = window.setTimeout(async () => {
       const term = form.remetenteNome.trim()
 
-      if (!term) {
+      if (!term || term.length < 2) {
         setRemetenteSugestoes([])
         setRemetenteLoading(false)
         return
       }
 
+      const cachedItems = buscarDoCache(term)
+      if (cachedItems) {
+        setRemetenteSugestoes(cachedItems)
+        setRemetenteLoading(false)
+        return
+      }
+
       setRemetenteLoading(true)
-      const items = await searchCollectionByField('clientes', 'nome', term, 5)
+      const items = await searchCollectionByField('clientes', 'nome', term, 5, { empresaId, empresaNome })
 
       if (active) {
+        salvarBuscaNoCache(term, items)
         setRemetenteSugestoes(items)
         setRemetenteLoading(false)
       }
-    }, 220)
+    }, 360)
 
     return () => {
       active = false
       window.clearTimeout(timeout)
     }
-  }, [form.remetenteNome])
+  }, [empresaId, empresaNome, form.remetenteNome])
 
   useEffect(() => {
     let active = true
     const timeout = window.setTimeout(async () => {
       const term = form.destinatarioNome.trim()
 
-      if (!term) {
+      if (!term || term.length < 2) {
         setDestinatarioSugestoes([])
         setDestinatarioLoading(false)
         return
       }
 
+      const cachedItems = buscarDoCache(term)
+      if (cachedItems) {
+        setDestinatarioSugestoes(cachedItems)
+        setDestinatarioLoading(false)
+        return
+      }
+
       setDestinatarioLoading(true)
-      const items = await searchCollectionByField('clientes', 'nome', term, 5)
+      const items = await searchCollectionByField('clientes', 'nome', term, 5, { empresaId, empresaNome })
 
       if (active) {
+        salvarBuscaNoCache(term, items)
         setDestinatarioSugestoes(items)
         setDestinatarioLoading(false)
       }
-    }, 220)
+    }, 360)
 
     return () => {
       active = false
       window.clearTimeout(timeout)
     }
-  }, [form.destinatarioNome])
+  }, [empresaId, empresaNome, form.destinatarioNome])
 
   function updateForm(key, value) {
-    setForm((current) => ({ ...current, [key]: value }))
+    setForm((current) => {
+      if (key === 'horarioSaidaEmbarcacao') {
+        return {
+          ...current,
+          horarioSaidaEmbarcacao: value,
+          horarioSaidaManual: true,
+        }
+      }
+
+      if (key === 'horarioChegada') {
+        return {
+          ...current,
+          horarioChegada: value,
+          horarioSaidaEmbarcacao: current.horarioSaidaManual ? current.horarioSaidaEmbarcacao : '',
+        }
+      }
+
+      if (key === 'valorFrete') {
+        return {
+          ...current,
+          valorFrete: value,
+          valorFreteManual: true,
+        }
+      }
+
+      return { ...current, [key]: value }
+    })
+  }
+
+  function handleChangeEmbarcacao(nomeEmbarcacao) {
+    const embarcacaoEscolhida = embarcacoes.find((item) => item.nome === nomeEmbarcacao)
+    const horarioSugerido = escolherProximaPartida(form.horarioChegada, normalizarHorariosPartida(embarcacaoEscolhida))
+
+    setForm((current) => ({
+      ...current,
+      embarcacaoId: embarcacaoEscolhida?.id || '',
+      embarcacaoNome: nomeEmbarcacao,
+      horarioSaidaEmbarcacao: current.horarioSaidaManual ? current.horarioSaidaEmbarcacao : horarioSugerido,
+      horarioSaidaManual: current.horarioSaidaManual,
+    }))
+  }
+
+  function handleChangeLinha(linhaNome) {
+    const linhaEscolhida = rotasValores.find((item) => `${item.origem} - ${item.destino}` === linhaNome)
+
+    setForm((current) => ({
+      ...current,
+      rotaId: linhaEscolhida?.id || '',
+      linhaNome,
+      terminalDestino: linhaEscolhida?.terminalDestino || linhaEscolhida?.destino || '',
+      valorFrete: current.valorFreteManual ? current.valorFrete : String(linhaEscolhida?.valor || ''),
+    }))
   }
 
   function resetForm() {
@@ -537,31 +848,9 @@ export default function NovaComanda() {
     setQuickAddForm(emptyCliente)
   }
 
-  function clearPerson(target) {
-    if (target === 'remetente') {
-      setForm((current) => ({
-        ...current,
-        remetenteId: '',
-        remetenteNome: '',
-        remetenteDocumento: '',
-        remetenteTelefone: '',
-        remetenteEmail: '',
-      }))
-      setRemetenteSugestoes([])
-      return
-    }
-
-    setForm((current) => ({
-      ...current,
-      destinatarioId: '',
-      destinatarioNome: '',
-      destinatarioTelefone: '',
-      destinatarioEmail: '',
-    }))
-    setDestinatarioSugestoes([])
-  }
-
   function pickCliente(target, cliente) {
+    salvarClienteNosCaches(cliente)
+
     if (target === 'remetente') {
       setForm((current) => ({
         ...current,
@@ -614,9 +903,12 @@ export default function NovaComanda() {
       email: quickAddForm.email.trim(),
       documento: quickAddForm.documento.trim(),
       cidade: quickAddForm.cidade.trim(),
+      empresaId: user?.empresaId || '',
+      empresaNome: user?.empresaNome || '',
     })
 
     if (quickAddTarget === 'remetente') {
+      salvarClienteNosCaches(novo)
       setForm((current) => ({
         ...current,
         remetenteId: novo.id,
@@ -627,6 +919,7 @@ export default function NovaComanda() {
       }))
       setRemetenteSugestoes([])
     } else {
+      salvarClienteNosCaches(novo)
       setForm((current) => ({
         ...current,
         destinatarioId: novo.id,
@@ -641,24 +934,125 @@ export default function NovaComanda() {
     setQuickAddForm(emptyCliente)
   }
 
+  async function salvarClienteAutomatico(target) {
+    const isRemetente = target === 'remetente'
+    const nome = String(isRemetente ? form.remetenteNome : form.destinatarioNome).trim()
+    const telefone = String(isRemetente ? form.remetenteTelefone : form.destinatarioTelefone).trim()
+    const email = String(isRemetente ? form.remetenteEmail : form.destinatarioEmail).trim()
+    const documento = String(isRemetente ? form.remetenteDocumento : '').trim()
+    const clienteId = isRemetente ? form.remetenteId : form.destinatarioId
+
+    if (!nome) {
+      return null
+    }
+
+    if (clienteId) {
+      const updates = {}
+      if (telefone) updates.telefone = telefone
+      if (email) updates.email = email
+      if (documento) updates.documento = documento
+
+      if (Object.keys(updates).length > 0) {
+        await updateCollectionDocument('clientes', clienteId, updates)
+      }
+
+      return clienteId
+    }
+
+    const encontrados = await searchCollectionByField('clientes', 'nome', nome, 10, { empresaId, empresaNome })
+    salvarBuscaNoCache(nome, encontrados)
+    const nomeNormalizado = nome.toLowerCase()
+    const existente = encontrados.find((item) => String(item.nome || '').trim().toLowerCase() === nomeNormalizado)
+
+    if (existente) {
+      salvarClienteNosCaches({
+        ...existente,
+        telefone: telefone || existente.telefone || '',
+        email: email || existente.email || '',
+        documento: documento || existente.documento || '',
+      })
+      const updates = {}
+      if (telefone && telefone !== (existente.telefone || '')) updates.telefone = telefone
+      if (email && email !== (existente.email || '')) updates.email = email
+      if (documento && documento !== (existente.documento || '')) updates.documento = documento
+
+      if (Object.keys(updates).length > 0) {
+        await updateCollectionDocument('clientes', existente.id, updates)
+      }
+
+      setForm((current) =>
+        isRemetente
+          ? {
+              ...current,
+              remetenteId: existente.id,
+              remetenteTelefone: telefone || existente.telefone || '',
+              remetenteEmail: email || existente.email || '',
+              remetenteDocumento: documento || existente.documento || '',
+            }
+          : {
+              ...current,
+              destinatarioId: existente.id,
+              destinatarioTelefone: telefone || existente.telefone || '',
+              destinatarioEmail: email || existente.email || '',
+            },
+      )
+
+      return existente.id
+    }
+
+    const novo = await addCollectionDocument('clientes', {
+      nome,
+      telefone,
+      email,
+      documento,
+      cidade: '',
+      empresaId: user?.empresaId || '',
+      empresaNome: user?.empresaNome || '',
+    })
+    salvarClienteNosCaches(novo)
+
+    setForm((current) =>
+      isRemetente
+        ? { ...current, remetenteId: novo.id }
+        : { ...current, destinatarioId: novo.id },
+    )
+
+    return novo.id
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
     setLoading(true)
 
     try {
+      const [remetenteId, destinatarioId] = await Promise.all([
+        salvarClienteAutomatico('remetente'),
+        salvarClienteAutomatico('destinatario'),
+      ])
       const codigo = await gerarCodigoEncomenda()
       const qr = await gerarQRCode(codigo)
       const created = await criarEncomenda({
         ...form,
+        remetenteId: remetenteId || form.remetenteId,
+        destinatarioId: destinatarioId || form.destinatarioId,
         remetenteNome: obterRemetenteNome(form.remetenteNome),
+        rotaId: form.rotaId || linhaSelecionada?.id || '',
+        linhaNome: form.linhaNome,
+        embarcacaoId: form.embarcacaoId || embarcacaoSelecionada?.id || '',
+        embarcacaoNome: form.embarcacaoNome || embarcacaoSelecionada?.nome || '',
+        horarioSaidaEmbarcacao: horarioSaidaEfetivo,
+        previsaoChegada: previsaoChegadaCalculada,
         codigo,
         qrCodeDataUrl: qr,
         rastreioUrl: montarRastreioUrl(codigo),
         operadorNome: user?.nome || user?.displayName || user?.email || 'Operador',
         operadorEmail: user?.email || '',
+        empresaId: user?.empresaId || '',
+        empresaNome: user?.empresaNome || SYSTEM_NAME,
         valorDeclarado: form.valorDeclaradoAtivo ? form.valorMercadoria : '',
         possuiNotaFiscal: form.possuiNotaFiscal,
-        terminalOrigem: 'LUZ DA AURORA III',
+        terminalOrigem: SYSTEM_NAME,
+        terminalDestino: linhaSelecionada?.terminalDestino || linhaSelecionada?.destino || form.terminalDestino,
         descricao: form.descricao || form.tipoMercadoria,
       })
 
@@ -695,7 +1089,7 @@ export default function NovaComanda() {
                 </div>
                 <div>
                   <p className="text-[2.2rem] font-extrabold uppercase leading-none tracking-[-0.04em]">Novo Frete</p>
-                  <p className="mt-2 text-[1.1rem] font-medium uppercase tracking-[0.02em] text-blue-100">LUZ DA AURORA III</p>
+                  <p className="mt-2 text-[1.1rem] font-medium uppercase tracking-[0.02em] text-blue-100">{SYSTEM_NAME}</p>
                 </div>
               </div>
 
@@ -713,10 +1107,11 @@ export default function NovaComanda() {
 
           <main className="flex-1 px-5 pb-6 pt-5">
             <form className="space-y-4" onSubmit={handleSubmit}>
-              <CompactScheduleCard
+              <CompactScheduleCardRefined
                 dataComanda={form.dataComanda}
                 horarioPostagem={form.horarioChegada}
-                horarioSaidaEmbarcacao={form.horarioSaidaEmbarcacao}
+                horarioSaidaEmbarcacao={horarioSaidaEfetivo}
+                previsaoChegada={previsaoChegadaCalculada}
                 onChange={updateForm}
               />
 
@@ -725,11 +1120,14 @@ export default function NovaComanda() {
                 value={form.remetenteNome}
                 subtitle={form.remetenteDocumento || 'Opcional. Se vazio, vai como Entregador'}
                 searchValue={form.remetenteNome}
+                phoneValue={form.remetenteTelefone}
+                emailValue={form.remetenteEmail}
                 loading={remetenteLoading}
                 suggestions={remetenteSugestoes}
                 onSearchChange={(value) => updateForm('remetenteNome', value)}
+                onPhoneChange={(value) => updateForm('remetenteTelefone', value)}
+                onEmailChange={(value) => updateForm('remetenteEmail', value)}
                 onPick={(cliente) => pickCliente('remetente', cliente)}
-                onClear={() => clearPerson('remetente')}
                 onOpenQuickAdd={() => openQuickAdd('remetente')}
               />
 
@@ -738,19 +1136,29 @@ export default function NovaComanda() {
                 value={form.destinatarioNome}
                 subtitle="Selecione quem vai receber"
                 searchValue={form.destinatarioNome}
+                phoneValue={form.destinatarioTelefone}
+                emailValue={form.destinatarioEmail}
                 loading={destinatarioLoading}
                 suggestions={destinatarioSugestoes}
                 onSearchChange={(value) => updateForm('destinatarioNome', value)}
+                onPhoneChange={(value) => updateForm('destinatarioTelefone', value)}
+                onEmailChange={(value) => updateForm('destinatarioEmail', value)}
                 onPick={(cliente) => pickCliente('destinatario', cliente)}
-                onClear={() => clearPerson('destinatario')}
                 onOpenQuickAdd={() => openQuickAdd('destinatario')}
               />
 
               <SelectCard
-                title="Destino"
-                value={form.terminalDestino}
-                options={destinosPadrao}
-                onChange={(value) => updateForm('terminalDestino', value)}
+                title="Embarcacao"
+                value={form.embarcacaoNome || embarcacaoSelecionada?.nome || 'Selecionar embarcacao'}
+                options={embarcacaoOptions}
+                onChange={handleChangeEmbarcacao}
+              />
+
+              <SelectCard
+                title="Linha"
+                value={form.linhaNome || 'Selecionar linha'}
+                options={linhaOptions}
+                onChange={handleChangeLinha}
               />
 
               <SegmentedChoice
@@ -780,7 +1188,7 @@ export default function NovaComanda() {
                 />
 
                 <AmountCard
-                  title="Valor do frete"
+                  title="Valor"
                   value={form.valorFrete}
                   onChange={(value) => updateForm('valorFrete', value)}
                   icon={<MoneyIcon />}
@@ -799,7 +1207,13 @@ export default function NovaComanda() {
                 />
               ) : null}
 
-              <SummaryBlock form={form} total={totalFrete} />
+              <SummaryBlock
+                form={form}
+                total={totalFrete}
+                horarioSaidaEfetivo={horarioSaidaEfetivo}
+                previsaoChegada={previsaoChegadaCalculada}
+                embarcacaoNome={form.embarcacaoNome || embarcacaoSelecionada?.nome || ''}
+              />
 
               <div className="space-y-4 pb-4">
                 <Button type="submit" disabled={loading} className="min-h-18 w-full rounded-[1.6rem] text-[1.05rem] uppercase">
@@ -986,26 +1400,18 @@ function EyeIcon() {
   )
 }
 
-function ChevronDownIcon() {
+function PlusSmallIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m6 9 6 6 6-6" />
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
     </svg>
   )
 }
 
 function CloseIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  )
-}
-
-function PlusSmallIcon() {
-  return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" />
+      <path d="m6 6 12 12M18 6 6 18" />
     </svg>
   )
 }

@@ -2,6 +2,8 @@ import { NavLink } from 'react-router-dom'
 import useAuth from '../context/useAuth.js'
 import {
   BoatIcon,
+  BuildingIcon,
+  ClipboardIcon,
   DashboardIcon,
   MoneyIcon,
   PackageIcon,
@@ -12,6 +14,7 @@ import {
   SearchIcon,
   ShieldIcon,
 } from './AppIcons.jsx'
+import { SYSTEM_NAME } from '../utils/systemConfig.js'
 
 const items = [
   { to: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
@@ -29,17 +32,22 @@ export default function Sidebar({ open = false, onClose }) {
   const { user } = useAuth()
   const menuItems =
     user?.perfil === 'superadmin'
-      ? [...items, { to: '/usuarios', label: 'Usuarios', icon: ShieldIcon }]
+      ? [
+          ...items,
+          { to: '/usuarios', label: 'Usuarios', icon: ShieldIcon },
+          { to: '/empresas', label: 'Empresas', icon: BuildingIcon },
+          ...(user?.rootSuperadmin ? [{ to: '/logs-uso', label: 'Logs de uso', icon: ClipboardIcon }] : []),
+        ]
       : items
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 w-[21rem] max-w-[90vw] border-r border-blue-100 bg-white/98 p-5 text-slate-900 shadow-2xl transition-transform duration-300 ${
+      className={`fixed inset-y-0 left-0 z-30 h-screen w-[21rem] max-w-[90vw] overflow-y-auto overscroll-contain border-r border-blue-100 bg-white/98 p-5 pb-10 text-slate-900 shadow-2xl transition-transform duration-300 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
       <div className="mb-6 rounded-[1.8rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] px-4 py-5 text-white shadow-panel">
-        <h2 className="text-2xl font-bold tracking-[-0.03em]">LUZ DA AURORA III</h2>
+        <h2 className="text-2xl font-bold tracking-[-0.03em]">{SYSTEM_NAME}</h2>
         <p className="mt-2 text-sm text-blue-100/85">Controle de balcao, terminais, encomendas e caixa.</p>
       </div>
 

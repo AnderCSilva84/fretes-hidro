@@ -4,6 +4,7 @@ import Button from '../components/Button.jsx'
 import Card from '../components/Card.jsx'
 import Input from '../components/Input.jsx'
 import useAuth from '../context/useAuth.js'
+import { ROOT_SUPERADMIN_EMAIL, SYSTEM_NAME } from '../utils/systemConfig.js'
 
 export default function Login() {
   const { login, ready, user } = useAuth()
@@ -38,11 +39,12 @@ export default function Login() {
       <Card className="w-full max-w-md p-8 lg:p-10">
         <form className="space-y-5" onSubmit={handleSubmit}>
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-[#1657d8]">LUZ DA AURORA III</p>
+            <p className="text-xs uppercase tracking-[0.35em] text-[#1657d8]">{SYSTEM_NAME}</p>
             <h2 className="mt-4 text-3xl font-bold text-slate-900">Entrar no sistema</h2>
             <p className="mt-2 text-sm text-slate-500">
               Use suas credenciais do Firebase ou os acessos criados pelo superadmin em modo demonstracao.
             </p>
+            <p className="mt-2 text-xs text-slate-400">Superadmin principal: {ROOT_SUPERADMIN_EMAIL}</p>
           </div>
 
           <Input

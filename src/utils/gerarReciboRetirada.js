@@ -24,6 +24,7 @@ function formatarMoeda(valor) {
 export async function gerarReciboRetirada(encomenda) {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
+  const modo = encomenda.modoBaixa === 'entrega' ? 'entrega' : 'retirada'
   const recebedor = encomenda.retiradaRecebedorNome || encomenda.destinatarioNome || '-'
   const documento = encomenda.retiradaRecebedorDocumento || '-'
   const retiradaEm = formatarDataHora(encomenda.entregueEm || encomenda.retiradaFinalizadaEm)
@@ -34,7 +35,7 @@ export async function gerarReciboRetirada(encomenda) {
   pdf.setTextColor(255, 255, 255)
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(20)
-  pdf.text('Recibo de Retirada', 14, 18)
+  pdf.text(`Recibo de ${modo === 'entrega' ? 'Entrega' : 'Retirada'}`, 14, 18)
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(11)
@@ -50,11 +51,11 @@ export async function gerarReciboRetirada(encomenda) {
   pdf.text(`Valor total: ${formatarMoeda(encomenda.valorTotal)}`, 14, 112)
 
   pdf.setFont('helvetica', 'bold')
-  pdf.text('Dados da retirada', 14, 128)
+  pdf.text(`Dados da ${modo}`, 14, 128)
   pdf.setFont('helvetica', 'normal')
   pdf.text(`Recebedor: ${recebedor}`, 14, 138)
   pdf.text(`Documento: ${documento}`, 14, 146)
-  pdf.text(`Retirada em: ${retiradaEm}`, 14, 154)
+  pdf.text(`${modo === 'entrega' ? 'Entrega' : 'Retirada'} em: ${retiradaEm}`, 14, 154)
   pdf.text(`Registrado por: ${operador}`, 14, 162)
 
   if (encomenda.retiradaObservacao) {
@@ -74,7 +75,7 @@ export async function gerarReciboRetirada(encomenda) {
 
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(9)
-  pdf.text('Este recibo confirma a retirada da postagem pelo recebedor identificado acima.', 14, 252)
+  pdf.text(`Este recibo confirma a ${modo} da postagem pelo recebedor identificado acima.`, 14, 252)
 
   return pdf.output('bloburl')
 }

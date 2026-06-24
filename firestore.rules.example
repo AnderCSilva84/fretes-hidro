@@ -44,21 +44,11 @@ service cloud.firestore {
       );
     }
 
-    function isScopedCollection(collectionName) {
-      return collectionName in [
-        'clientes',
-        'terminais',
-        'embarcacoes',
-        'rotasValores',
-        'encomendas',
-        'movimentacoes',
-        'caixa'
-      ];
-    }
-
     match /usuarios/{userId} {
       allow read: if isRootSuperadmin() || (isSignedIn() && request.auth.uid == userId);
-      allow create, update, delete: if isRootSuperadmin();
+      allow create: if isRootSuperadmin();
+      allow update: if isRootSuperadmin();
+      allow delete: if isRootSuperadmin();
     }
 
     match /empresas/{empresaId} {
@@ -78,19 +68,19 @@ service cloud.firestore {
       allow read: if isRootSuperadmin()
         || (
           canAccessScopedCollection(resource.data)
-          && isScopedCollection(collectionName)
+          && collectionName in ['clientes', 'terminais', 'embarcacoes', 'rotasValores', 'encomendas', 'movimentacoes', 'caixa']
         );
 
       allow create: if isRootSuperadmin()
         || (
           canCreateScopedCollection()
-          && isScopedCollection(collectionName)
+          && collectionName in ['clientes', 'terminais', 'embarcacoes', 'rotasValores', 'encomendas', 'movimentacoes', 'caixa']
         );
 
       allow update: if isRootSuperadmin()
         || (
           canAccessScopedCollection(resource.data)
-          && isScopedCollection(collectionName)
+          && collectionName in ['clientes', 'terminais', 'embarcacoes', 'rotasValores', 'encomendas', 'movimentacoes', 'caixa']
           && (
             !hasEmpresaScope()
             || request.resource.data.empresaId == resource.data.empresaId
@@ -100,7 +90,7 @@ service cloud.firestore {
       allow delete: if isRootSuperadmin()
         || (
           canAccessScopedCollection(resource.data)
-          && isScopedCollection(collectionName)
+          && collectionName in ['clientes', 'terminais', 'embarcacoes', 'rotasValores', 'encomendas', 'movimentacoes', 'caixa']
         );
     }
   }

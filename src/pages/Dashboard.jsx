@@ -1,10 +1,12 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { DashboardIcon, ListIcon, PackageIcon } from '../components/AppIcons.jsx'
 import Button from '../components/Button.jsx'
 import Card from '../components/Card.jsx'
 import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
-import useFirestoreCollection from '../hooks/useFirestoreCollection.js'
+import useAuth from '../context/useAuth.js'
+import { getAdminResumo, getCaixaResumo, listRecentDocuments } from '../services/firebase.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 import { abrirComprovante, obterRastreioUrl } from '../utils/encomendaMedia.js'
 
@@ -19,18 +21,46 @@ function StatCard({ label, value, hint }) {
 }
 
 export default function Dashboard() {
-  const encomendas = useFirestoreCollection('encomendas').items
-  const clientes = useFirestoreCollection('clientes').items
-  const terminais = useFirestoreCollection('terminais').items
-  const caixa = useFirestoreCollection('caixa').items
+  const { user } = useAuth()
+  const [metrics, setMetrics] = useState({
+    encomendas: 0,
+    clientes: 0,
+    terminais: 0,
+    totalEntrada: 0,
+  })
+  const [recentOrders, setRecentOrders] = useState([])
 
-  const recentOrders = [...encomendas]
-    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
-    .slice(0, 5)
+  useEffect(() => {
+    let active = true
+    const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
+    const empresaNome = user?.empresaNome || ''
 
-  const totalEntrada = caixa
-    .filter((item) => item.tipo === 'entrada')
-    .reduce((sum, item) => sum + Number(item.valor || 0), 0)
+    async function carregarDashboard() {
+      const [adminResumo, caixaResumo, recentOrdersResult] = await Promise.all([
+        getAdminResumo({ empresaId, empresaNome }),
+        getCaixaResumo({ empresaId, empresaNome }),
+        listRecentDocuments('encomendas', 'criadoEm', 5, { empresaId, empresaNome }),
+      ])
+
+      if (!active) {
+        return
+      }
+
+      setMetrics({
+        encomendas: Number(adminResumo?.totalEncomendas || 0),
+        clientes: Number(adminResumo?.totalClientes || 0),
+        terminais: Number(adminResumo?.totalTerminais || 0),
+        totalEntrada: Number(caixaResumo?.totalEntrada || 0),
+      })
+      setRecentOrders(recentOrdersResult)
+    }
+
+    void carregarDashboard()
+
+    return () => {
+      active = false
+    }
+  }, [user?.empresaId, user?.empresaNome, user?.rootSuperadmin])
 
   async function abrirPdf(item) {
     await abrirComprovante(item, '_blank')
@@ -38,24 +68,16 @@ export default function Dashboard() {
 
   return (
     <Layout
-      title="Dashboard administrativo"
+      title="ADMINISTRATIVO"
       subtitle="Resumo operacional e acesso rapido as rotinas principais."
       icon={<DashboardIcon className="h-6 w-6" />}
     >
       <div className="space-y-6">
-        <Card className="overflow-hidden border-blue-100 bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] text-white shadow-[0_18px_45px_rgba(10,45,97,0.32)]">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-blue-100">LUZ DA AURORA III</p>
-          <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">Visao geral da operacao</h2>
-          <p className="mt-2 max-w-2xl text-sm text-blue-100/90">
-            Acompanhe os principais numeros do sistema com a mesma linguagem visual da tela de novo frete.
-          </p>
-        </Card>
-
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Encomendas" value={encomendas.length} hint="Movimentacoes registradas no sistema" />
-          <StatCard label="Clientes" value={clientes.length} hint="Cadastro para remetentes e destinatarios" />
-          <StatCard label="Terminais" value={terminais.length} hint="Bases de embarque e desembarque" />
-          <StatCard label="Caixa" value={`R$ ${totalEntrada.toFixed(2)}`} hint="Entradas totais registradas" />
+          <StatCard label="Encomendas" value={metrics.encomendas} hint="Movimentacoes registradas no sistema" />
+          <StatCard label="Clientes" value={metrics.clientes} hint="Cadastro para remetentes e destinatarios" />
+          <StatCard label="Terminais" value={metrics.terminais} hint="Bases de embarque e desembarque" />
+          <StatCard label="Caixa" value={`R$ ${metrics.totalEntrada.toFixed(2)}`} hint="Entradas totais registradas" />
         </div>
 
         <PageShell

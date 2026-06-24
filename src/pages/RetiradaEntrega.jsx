@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { PackageIcon, SearchIcon } from '../components/AppIcons.jsx'
 import Button from '../components/Button.jsx'
 import Layout from '../components/Layout.jsx'
@@ -38,6 +38,7 @@ function getPoint(event, canvas) {
 
 export default function RetiradaEntrega() {
   const { codigo } = useParams()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const canvasRef = useRef(null)
   const drawingRef = useRef(false)
@@ -49,13 +50,20 @@ export default function RetiradaEntrega() {
   const [recebedorNome, setRecebedorNome] = useState('')
   const [recebedorDocumento, setRecebedorDocumento] = useState('')
   const [observacao, setObservacao] = useState('')
+  const modo = searchParams.get('modo') === 'entrega' ? 'entrega' : 'retirada'
+  const tituloFluxo = modo === 'entrega' ? 'Entrega com assinatura' : 'Retirada com assinatura'
+  const subtituloFluxo = modo === 'entrega'
+    ? 'Confirme a entrega do frete e gere o recibo assinado.'
+    : 'Confirme a retirada do frete e gere o recibo assinado.'
 
   useEffect(() => {
     let ativo = true
+    const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
+    const empresaNome = user?.empresaNome || ''
 
     async function carregar() {
       setLoading(true)
-      const found = await searchByCodigo(codigo)
+      const found = await searchByCodigo(codigo, { empresaId: user ? empresaId : '', empresaNome: user ? empresaNome : '' })
 
       if (!ativo) {
         return
@@ -73,7 +81,7 @@ export default function RetiradaEntrega() {
     return () => {
       ativo = false
     }
-  }, [codigo])
+  }, [codigo, user])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -161,12 +169,12 @@ export default function RetiradaEntrega() {
     }
 
     if (!recebedorNome.trim()) {
-      setErro('Informe o nome de quem esta retirando a postagem.')
+      setErro(`Informe o nome de quem esta ${modo === 'entrega' ? 'recebendo a encomenda' : 'retirando a postagem'}.`)
       return
     }
 
     if (!hasSignature) {
-      setErro('Colete a assinatura do cliente antes de finalizar a retirada.')
+      setErro(`Colete a assinatura do cliente antes de finalizar a ${modo}.`)
       return
     }
 
@@ -188,16 +196,20 @@ export default function RetiradaEntrega() {
         retiradaObservacao: observacao.trim(),
         assinaturaRetiradaDataUrl,
         reciboRetiradaGeradoEm: entregueEm,
+        modoBaixa: modo,
       }
 
       await atualizarStatusEncomenda(
         encomenda,
         'Entregue',
-        `Retirada assinada por ${recebedorNome.trim()} e registrada por ${operador}.`,
+        `${modo === 'entrega' ? 'Entrega' : 'Retirada'} assinada por ${recebedorNome.trim()} e registrada por ${operador}.`,
         updates,
       )
 
-      const atualizada = await searchByCodigo(encomenda.codigo)
+      const atualizada = await searchByCodigo(encomenda.codigo, {
+        empresaId: user?.rootSuperadmin ? '' : user?.empresaId || '',
+        empresaNome: user?.empresaNome || '',
+      })
       setEncomenda(atualizada)
       await abrirReciboRetirada({
         ...atualizada,
@@ -217,7 +229,7 @@ export default function RetiradaEntrega() {
   }
 
   return (
-    <Layout title="Retirada com assinatura" subtitle="Confirme a retirada do frete e gere o recibo assinado." icon={<PackageIcon className="h-6 w-6" />}>
+    <Layout title={tituloFluxo} subtitle={subtituloFluxo} icon={<PackageIcon className="h-6 w-6" />}>
       {loading ? (
         <div className="rounded-[1.8rem] border border-blue-100 bg-white p-5 text-slate-500 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
           Carregando dados da comanda...
@@ -225,16 +237,16 @@ export default function RetiradaEntrega() {
       ) : !encomenda ? (
         <div className="rounded-[1.8rem] border border-rose-100 bg-white p-5 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
           <p className="font-semibold text-rose-700">Codigo nao encontrado.</p>
-          <Link to="/scanner-retirada" className="mt-3 inline-flex text-sm font-semibold text-[#1657d8]">
-            Voltar para o scanner
+          <Link to={modo === 'entrega' ? '/encomendas' : '/scanner-retirada'} className="mt-3 inline-flex text-sm font-semibold text-[#1657d8]">
+            {modo === 'entrega' ? 'Voltar para a lista' : 'Voltar para o scanner'}
           </Link>
         </div>
       ) : (
         <div className="space-y-6">
           <section className="rounded-[1.8rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] p-5 text-white shadow-[0_18px_45px_rgba(10,45,97,0.32)]">
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-blue-100">Retirada</p>
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-blue-100">{modo === 'entrega' ? 'Entrega' : 'Retirada'}</p>
             <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">{encomenda.codigo}</h2>
-            <p className="mt-2 text-sm text-blue-100/90">Colete a assinatura do cliente e gere o recibo final da retirada.</p>
+            <p className="mt-2 text-sm text-blue-100/90">Colete a assinatura do cliente e gere o recibo final da {modo}.</p>
           </section>
 
           <section className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
@@ -245,7 +257,7 @@ export default function RetiradaEntrega() {
                 </span>
                 <div>
                   <h3 className="text-xl font-bold text-slate-950">Dados da comanda</h3>
-                  <p className="mt-1 text-sm text-slate-500">Confira os dados antes de concluir a entrega por retirada.</p>
+                  <p className="mt-1 text-sm text-slate-500">Confira os dados antes de concluir a {modo} desta encomenda.</p>
                 </div>
               </div>
 
@@ -265,8 +277,8 @@ export default function RetiradaEntrega() {
                     <Button type="button" variant="secondary" onClick={reabrirRecibo}>
                       Abrir recibo assinado
                     </Button>
-                    <Link to="/scanner-retirada" className="inline-flex items-center text-sm font-semibold text-[#1657d8]">
-                      Voltar ao scanner
+                    <Link to={modo === 'entrega' ? '/encomendas' : '/scanner-retirada'} className="inline-flex items-center text-sm font-semibold text-[#1657d8]">
+                      {modo === 'entrega' ? 'Voltar para a lista' : 'Voltar ao scanner'}
                     </Link>
                   </div>
                 </div>
@@ -279,7 +291,7 @@ export default function RetiradaEntrega() {
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 <label className="space-y-1">
-                  <span className="text-sm font-medium text-slate-600">Nome de quem retira</span>
+                  <span className="text-sm font-medium text-slate-600">Nome de quem recebe</span>
                   <input
                     value={recebedorNome}
                     onChange={(event) => setRecebedorNome(event.target.value)}
@@ -324,7 +336,7 @@ export default function RetiradaEntrega() {
                   Limpar assinatura
                 </Button>
                 <Button type="button" onClick={finalizarRetirada} disabled={saving || Boolean(encomenda.assinaturaRetiradaDataUrl)}>
-                  {saving ? 'Finalizando...' : 'Finalizar retirada e gerar recibo'}
+                  {saving ? 'Finalizando...' : `Finalizar ${modo} e gerar recibo`}
                 </Button>
               </div>
 

@@ -1,5 +1,5 @@
 export function montarRastreioUrl(codigo) {
-  return `${window.location.origin}/rastreio/${codigo}`
+  return `${window.location.origin}/#/rastreio/${encodeURIComponent(codigo)}`
 }
 
 export async function gerarQRCode(codigo) {

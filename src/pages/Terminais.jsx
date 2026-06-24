@@ -10,6 +10,9 @@ export default function Terminais() {
         title="Terminais cadastrados"
         subtitle="Pontos de postagem e destino com manutencao rapida de cadastro."
         icon={<PinIcon className="h-6 w-6" />}
+        orderField="nome"
+        orderDirection="asc"
+        pageSize={12}
         initialValues={{ nome: '', cidade: '', observacao: '' }}
         fields={[
           { name: 'nome', label: 'Nome', required: true, fullWidth: true },

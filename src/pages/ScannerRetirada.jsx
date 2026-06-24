@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import jsQR from 'jsqr'
 import { PackageIcon, SearchIcon } from '../components/AppIcons.jsx'
 import Button from '../components/Button.jsx'
 import Layout from '../components/Layout.jsx'
@@ -19,6 +20,14 @@ function extrairCodigoQr(valor) {
     if (indiceRastreio >= 0 && partes[indiceRastreio + 1]) {
       return decodeURIComponent(partes[indiceRastreio + 1])
     }
+
+    const hashNormalizado = url.hash.replace(/^#\/?/, '')
+    const partesHash = hashNormalizado.split('/').filter(Boolean)
+    const indiceRastreioHash = partesHash.findIndex((parte) => parte === 'rastreio')
+
+    if (indiceRastreioHash >= 0 && partesHash[indiceRastreioHash + 1]) {
+      return decodeURIComponent(partesHash[indiceRastreioHash + 1])
+    }
   } catch {
     return texto
   }
@@ -29,6 +38,7 @@ function extrairCodigoQr(valor) {
 export default function ScannerRetirada() {
   const navigate = useNavigate()
   const videoRef = useRef(null)
+  const fileInputRef = useRef(null)
   const streamRef = useRef(null)
   const intervalRef = useRef(0)
   const [cameraAtiva, setCameraAtiva] = useState(false)
@@ -42,6 +52,46 @@ export default function ScannerRetirada() {
     () => typeof window !== 'undefined' && 'BarcodeDetector' in window,
     [],
   )
+
+  const lerQrComJsQr = useCallback((source, largura, altura) => {
+    if (!largura || !altura) {
+      return ''
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = largura
+    canvas.height = altura
+
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+
+    if (!context) {
+      return ''
+    }
+
+    context.drawImage(source, 0, 0, largura, altura)
+    const imageData = context.getImageData(0, 0, largura, altura)
+    const resultado = jsQR(imageData.data, imageData.width, imageData.height)
+
+    return resultado?.data || ''
+  }, [])
+
+  const lerQrDoConteudo = useCallback(async (source, largura, altura) => {
+    if (suporteDetector) {
+      try {
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+        const encontrados = await detector.detect(source)
+        const valorDetector = encontrados[0]?.rawValue
+
+        if (valorDetector) {
+          return valorDetector
+        }
+      } catch {
+        // segue para o fallback com jsQR
+      }
+    }
+
+    return lerQrComJsQr(source, largura, altura)
+  }, [lerQrComJsQr, suporteDetector])
 
   function pararCamera() {
     if (intervalRef.current) {
@@ -79,15 +129,52 @@ export default function ScannerRetirada() {
       return
     }
 
-    if (!suporteDetector) {
-      setMensagem('Leitura automatica indisponivel neste navegador. Digite o codigo manualmente.')
+    setErro('')
+    setMensagem(
+      suporteDetector
+        ? 'Abrindo camera e procurando o QR Code...'
+        : 'Abrindo camera. Se a leitura automatica nao funcionar neste navegador, use a foto do QR ou digite o codigo manualmente.',
+    )
+    setProcessando(false)
+    setCameraAtiva(true)
+  }
+
+  function handleSelecionarFoto() {
+    setErro('')
+    setMensagem('Abra a camera ou escolha uma foto com o QR Code da comanda.')
+    fileInputRef.current?.click()
+  }
+
+  async function handleArquivoQr(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) {
       return
     }
 
     setErro('')
-    setMensagem('Abrindo camera e procurando o QR Code...')
-    setProcessando(false)
-    setCameraAtiva(true)
+    setProcessando(true)
+    setMensagem('Lendo QR Code da foto...')
+
+    try {
+      const bitmap = await createImageBitmap(file)
+      const valor = await lerQrDoConteudo(bitmap, bitmap.width, bitmap.height)
+      bitmap.close?.()
+
+      if (!valor) {
+        setErro('Nao foi possivel localizar um QR Code nesta foto.')
+        setMensagem('Tente novamente com a camera focada no QR Code ou informe o codigo manualmente.')
+        setProcessando(false)
+        return
+      }
+
+      abrirRetirada(valor)
+    } catch (error) {
+      setErro(error?.message || 'Nao foi possivel ler o QR Code da foto.')
+      setMensagem('Tente novamente com outra foto ou informe o codigo manualmente.')
+      setProcessando(false)
+    }
   }
 
   useEffect(() => {
@@ -121,8 +208,11 @@ export default function ScannerRetirada() {
           await videoRef.current.play()
         }
 
-        const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
-        setMensagem('Camera ativa. Aponte para o QR Code.')
+        setMensagem(
+          suporteDetector
+            ? 'Camera ativa. Aponte para o QR Code.'
+            : 'Camera ativa. Leitura reforcada ativada. Aponte para o QR Code.',
+        )
 
         intervalRef.current = window.setInterval(async () => {
           if (!ativo || processando || !videoRef.current) {
@@ -130,8 +220,11 @@ export default function ScannerRetirada() {
           }
 
           try {
-            const encontrados = await detector.detect(videoRef.current)
-            const valor = encontrados[0]?.rawValue
+            const valor = await lerQrDoConteudo(
+              videoRef.current,
+              videoRef.current.videoWidth,
+              videoRef.current.videoHeight,
+            )
 
             if (valor) {
               setProcessando(true)
@@ -153,7 +246,7 @@ export default function ScannerRetirada() {
       ativo = false
       pararCamera()
     }
-  }, [abrirRetirada, cameraAtiva, processando])
+  }, [abrirRetirada, cameraAtiva, lerQrDoConteudo, processando, suporteDetector])
 
   useEffect(() => () => pararCamera(), [])
 
@@ -180,6 +273,9 @@ export default function ScannerRetirada() {
               <Button type="button" onClick={handleAtivarCamera} disabled={!suporteCamera || processando}>
                 Ativar camera
               </Button>
+              <Button type="button" variant="secondary" onClick={handleSelecionarFoto}>
+                Escanear por foto
+              </Button>
               <Button type="button" variant="secondary" onClick={() => setCameraAtiva(false)}>
                 Parar camera
               </Button>
@@ -187,6 +283,14 @@ export default function ScannerRetirada() {
 
             <p className="mt-4 text-sm text-slate-600">{mensagem}</p>
             {erro ? <p className="mt-2 text-sm font-semibold text-rose-600">{erro}</p> : null}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleArquivoQr}
+            />
           </div>
 
           <div className="rounded-[1.8rem] border border-blue-100 bg-white p-5 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">

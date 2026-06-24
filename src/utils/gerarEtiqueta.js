@@ -1,4 +1,5 @@
 import { obterRemetenteNome } from './remetente.js'
+import { SYSTEM_NAME } from './systemConfig.js'
 
 function formatarDataHoraRegistro(valor) {
   if (!valor) {
@@ -28,7 +29,7 @@ export async function gerarEtiqueta(encomenda, qrCodeDataUrl) {
   pdf.setTextColor(255, 255, 255)
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(14)
-  pdf.text('LUZ DA AURORA III', 10, 11)
+  pdf.text(SYSTEM_NAME, 10, 11)
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(11)

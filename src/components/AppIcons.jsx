@@ -103,3 +103,22 @@ export function ShieldIcon({ className = 'h-5 w-5' }) {
     </svg>
   )
 }
+
+export function BuildingIcon({ className = 'h-5 w-5' }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 21h18" />
+      <path d="M5 21V7l7-4 7 4v14" />
+      <path d="M9 10h.01M9 14h.01M9 18h.01M15 10h.01M15 14h.01M15 18h.01" />
+    </svg>
+  )
+}
+
+export function ClipboardIcon({ className = 'h-5 w-5' }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="6" y="4" width="12" height="16" rx="2" />
+      <path d="M9 4.5h6M9 9h6M9 13h6M9 17h4" />
+    </svg>
+  )
+}

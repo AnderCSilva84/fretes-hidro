@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import useAuth from '../context/useAuth.js'
 import { HomeIcon, ListIcon, MoneyIcon, PlusIcon } from './AppIcons.jsx'
@@ -16,6 +16,21 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
   const [menuOpen, setMenuOpen] = useState(false)
   const { user, logout } = useAuth()
   const location = useLocation()
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    const previousTouchAction = document.body.style.touchAction
+
+    if (menuOpen) {
+      document.body.style.overflow = 'hidden'
+      document.body.style.touchAction = 'none'
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.body.style.touchAction = previousTouchAction
+    }
+  }, [menuOpen])
 
   if (immersive) {
     return (

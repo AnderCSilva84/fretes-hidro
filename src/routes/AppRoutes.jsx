@@ -9,6 +9,8 @@ const Clientes = lazy(() => import('../pages/Clientes.jsx'))
 const Dashboard = lazy(() => import('../pages/Dashboard.jsx'))
 const Embarcacoes = lazy(() => import('../pages/Embarcacoes.jsx'))
 const Encomendas = lazy(() => import('../pages/Encomendas.jsx'))
+const Empresas = lazy(() => import('../pages/Empresas.jsx'))
+const LogsUso = lazy(() => import('../pages/LogsUso.jsx'))
 const NovaComanda = lazy(() => import('../pages/NovaComanda.jsx'))
 const RetiradaEntrega = lazy(() => import('../pages/RetiradaEntrega.jsx'))
 const RotasValores = lazy(() => import('../pages/RotasValores.jsx'))
@@ -29,7 +31,7 @@ export default function AppRoutes() {
         <Route path="/login" element={<Login />} />
         <Route path="/rastreio/:codigo" element={<Rastreio />} />
         <Route element={<ProtectedRoute />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/nova-comanda" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/nova-comanda" element={<NovaComanda />} />
           <Route path="/clientes" element={<Clientes />} />
@@ -43,8 +45,10 @@ export default function AppRoutes() {
         </Route>
         <Route element={<ProtectedRoute requiredPerfil="superadmin" />}>
           <Route path="/usuarios" element={<Usuarios />} />
+          <Route path="/empresas" element={<Empresas />} />
+          <Route path="/logs-uso" element={<LogsUso />} />
         </Route>
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/nova-comanda" replace />} />
       </Routes>
     </Suspense>
   )
