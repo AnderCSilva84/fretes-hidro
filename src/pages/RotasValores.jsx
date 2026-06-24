@@ -17,6 +17,7 @@ import {
 const initialForm = {
   origem: '',
   destino: '',
+  terminalOrigem: '',
   terminalDestino: '',
   valor: '',
   duracaoMinutos: '',
@@ -88,6 +89,7 @@ export default function RotasValores() {
     setForm({
       origem: rota.origem || '',
       destino: rota.destino || '',
+      terminalOrigem: rota.terminalOrigem || '',
       terminalDestino: rota.terminalDestino || '',
       valor: rota.valor || '',
       duracaoMinutos: rota.duracaoMinutos || '',
@@ -123,6 +125,7 @@ export default function RotasValores() {
       const payload = {
         origem: form.origem.trim(),
         destino: form.destino.trim(),
+        terminalOrigem: form.terminalOrigem,
         terminalDestino: form.terminalDestino,
         valor: Number(form.valor || 0),
         duracaoMinutos: Number(form.duracaoMinutos || 0),
@@ -257,7 +260,24 @@ export default function RotasValores() {
                 required
               />
 
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 md:col-span-2">
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                <span>Terminal de origem</span>
+                <select
+                  value={form.terminalOrigem}
+                  onChange={(event) => setForm((current) => ({ ...current, terminalOrigem: event.target.value }))}
+                  className="min-h-9 w-full min-w-0 max-w-full rounded-[1rem] border border-blue-200 bg-white px-3 text-[0.85rem] text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 sm:min-h-10 sm:text-sm"
+                  required
+                >
+                  <option value="">Selecione um terminal</option>
+                  {terminalOptions.map((terminal) => (
+                    <option key={terminal} value={terminal}>
+                      {terminal}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 <span>Terminal de destino</span>
                 <select
                   value={form.terminalDestino}
@@ -337,7 +357,8 @@ export default function RotasValores() {
                 <p className="font-semibold text-slate-900">
                   {rota.origem} - {rota.destino}
                 </p>
-                <p className="text-sm text-slate-500">Terminal: {rota.terminalDestino || 'Nao informado'}</p>
+                <p className="text-sm text-slate-500">Origem: {rota.terminalOrigem || 'Nao informado'}</p>
+                <p className="text-sm text-slate-500">Destino: {rota.terminalDestino || 'Nao informado'}</p>
                 <p className="text-sm text-slate-500">Valor padrao: R$ {Number(rota.valor || 0).toFixed(2)}</p>
                 <p className="text-sm text-slate-500">Duracao: {rota.duracaoMinutos ? `${rota.duracaoMinutos} min` : 'Nao informada'}</p>
 

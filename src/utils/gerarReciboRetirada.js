@@ -29,6 +29,7 @@ export async function gerarReciboRetirada(encomenda) {
   const documento = encomenda.retiradaRecebedorDocumento || '-'
   const retiradaEm = formatarDataHora(encomenda.entregueEm || encomenda.retiradaFinalizadaEm)
   const operador = encomenda.operadorEntregaNome || encomenda.operadorEntregaEmail || '-'
+  const embarcacaoNome = encomenda.embarcacaoNome || '-'
 
   pdf.setFillColor(15, 76, 129)
   pdf.rect(0, 0, 210, 28, 'F')
@@ -44,6 +45,7 @@ export async function gerarReciboRetirada(encomenda) {
   pdf.text(`Data da postagem: ${encomenda.dataComanda || '-'}`, 14, 48)
   pdf.text(`Horario da postagem: ${encomenda.horarioChegada || '-'}`, 14, 56)
   pdf.text(`Saida da embarcacao: ${encomenda.horarioSaidaEmbarcacao || '-'}`, 14, 64)
+  pdf.text(`Embarcacao: ${embarcacaoNome}`, 14, 72)
   pdf.text(`Remetente: ${obterRemetenteNome(encomenda.remetenteNome)}`, 14, 80)
   pdf.text(`Destinatario: ${encomenda.destinatarioNome || '-'}`, 14, 88)
   pdf.text(`Origem: ${encomenda.terminalOrigem || '-'}`, 14, 96)

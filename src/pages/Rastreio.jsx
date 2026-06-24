@@ -7,6 +7,7 @@ import useAuth from '../context/useAuth.js'
 import { atualizarStatusEncomenda, getMovimentacoesPorCodigo, searchByCodigo } from '../services/firebase.js'
 import { abrirComprovante, abrirReciboRetirada } from '../utils/encomendaMedia.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
+import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
 import { SYSTEM_NAME } from '../utils/systemConfig.js'
 
 function formatarData(valor) {
@@ -34,6 +35,7 @@ export default function Rastreio() {
   const [loadingHistorico, setLoadingHistorico] = useState(false)
   const [historicoCarregado, setHistoricoCarregado] = useState(false)
   const [updatingDelivery, setUpdatingDelivery] = useState(false)
+  const [erroAcao, setErroAcao] = useState('')
 
   useEffect(() => {
     let ativo = true
@@ -56,7 +58,9 @@ export default function Rastreio() {
 
         setEncomenda(found)
         setPdfReady(false)
-      } catch {
+        setErroAcao('')
+      } catch (error) {
+        reportRuntimeError('Rastreio.carregar', error, { codigo, empresaId, empresaNome, autenticado: Boolean(user) })
         if (ativo) {
           setEncomenda(null)
           setMovimentacoes([])
@@ -87,7 +91,9 @@ export default function Rastreio() {
       })
       setMovimentacoes(movs)
       setHistoricoCarregado(true)
-    } catch {
+      setErroAcao('')
+    } catch (error) {
+      reportRuntimeError('Rastreio.carregarHistorico', error, { codigo: targetCodigo })
       setErroHistorico('Nao foi possivel carregar o historico agora.')
     } finally {
       setLoadingHistorico(false)
@@ -100,11 +106,15 @@ export default function Rastreio() {
     }
 
     setOpeningPdf(true)
+    setErroAcao('')
 
     try {
       await abrirComprovante(encomenda, '_blank')
 
       setPdfReady(true)
+    } catch (error) {
+      reportRuntimeError('Rastreio.handleOpenPdf', error, { codigo: encomenda.codigo })
+      setErroAcao('Nao foi possivel abrir o PDF desta comanda.')
     } finally {
       setOpeningPdf(false)
     }
@@ -116,6 +126,7 @@ export default function Rastreio() {
     }
 
     setUpdatingDelivery(true)
+    setErroAcao('')
 
     try {
       const operador = user?.nome || user?.displayName || user?.email || 'Operador'
@@ -146,6 +157,9 @@ export default function Rastreio() {
       setEncomenda(found)
       setMovimentacoes(movs)
       setHistoricoCarregado(true)
+    } catch (error) {
+      reportRuntimeError('Rastreio.handleMarcarEntregue', error, { codigo: encomenda.codigo })
+      setErroAcao('Nao foi possivel concluir a baixa desta encomenda.')
     } finally {
       setUpdatingDelivery(false)
     }
@@ -156,7 +170,13 @@ export default function Rastreio() {
       return
     }
 
-    await abrirReciboRetirada(encomenda, '_blank')
+    try {
+      await abrirReciboRetirada(encomenda, '_blank')
+      setErroAcao('')
+    } catch (error) {
+      reportRuntimeError('Rastreio.handleAbrirReciboRetirada', error, { codigo: encomenda.codigo })
+      setErroAcao('Nao foi possivel abrir o recibo assinado.')
+    }
   }
 
   const podeDarBaixa = Boolean(user && encomenda && encomenda.status !== 'Entregue' && encomenda.status !== 'Cancelado')
@@ -185,6 +205,11 @@ export default function Rastreio() {
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
             <Card className="border-blue-100">
               <div className="space-y-4">
+                {erroAcao ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                    {erroAcao}
+                  </div>
+                ) : null}
                 <div>
                   <p className="text-sm text-slate-500">Codigo</p>
                   <div className="mt-2 flex items-center gap-3">

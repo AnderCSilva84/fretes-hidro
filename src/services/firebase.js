@@ -136,6 +136,8 @@ const seedStore = {
       id: 'r1',
       origem: 'Belém',
       destino: 'Cametá',
+      terminalOrigem: 'THT Tamandaré',
+      terminalDestino: 'Terminal de Cametá',
       valor: 85,
       tempoEstimado: '1 dia',
     },
@@ -196,6 +198,24 @@ function preencherEmpresaPadrao(item = {}) {
   }
 }
 
+function inferTerminalOrigem(origem) {
+  const normalized = String(origem || '').trim().toLowerCase()
+
+  if (normalized === 'belém' || normalized === 'belem') {
+    return 'THT Tamandaré'
+  }
+
+  if (normalized === 'barcarena') {
+    return 'Terminal Hidroviario de Barcarena'
+  }
+
+  if (normalized === 'são francisco' || normalized === 'sao francisco') {
+    return 'Amazonat'
+  }
+
+  return ''
+}
+
 function migrateStore(store) {
   const nextStore = structuredClone(store || {})
 
@@ -245,6 +265,7 @@ function migrateStore(store) {
 
   nextStore.rotasValores = (nextStore.rotasValores || []).map((item) => ({
     ...preencherEmpresaPadrao(item),
+    terminalOrigem: item.terminalOrigem || inferTerminalOrigem(item.origem),
     origemBusca: item.origemBusca || normalizeSearchValue(item.origem),
     destinoBusca: item.destinoBusca || normalizeSearchValue(item.destino),
     linhaBusca: item.linhaBusca || normalizeSearchValue(`${item.origem || ''} ${item.destino || ''}`.trim()),

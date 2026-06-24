@@ -13,6 +13,7 @@ import {
 } from '../services/firebase.js'
 import { abrirComprovante, obterRastreioUrl } from '../utils/encomendaMedia.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
+import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
 
 const statusOptions = ['Postado', 'Em transito', 'Chegou ao terminal', 'Entregue', 'Cancelado']
 const PAGE_SIZE = 12
@@ -24,12 +25,14 @@ export default function Encomendas() {
   const [searchTerm, setSearchTerm] = useState('')
   const [loadingList, setLoadingList] = useState(false)
   const [busyId, setBusyId] = useState('')
+  const [erroTela, setErroTela] = useState('')
   const [cursor, setCursor] = useState(null)
   const [hasMore, setHasMore] = useState(false)
   const [searchActive, setSearchActive] = useState(false)
 
   async function carregarListaInicial() {
     setLoadingList(true)
+    setErroTela('')
     const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
     const empresaNome = user?.empresaNome || ''
 
@@ -46,6 +49,10 @@ export default function Encomendas() {
       setCursor(result.cursor)
       setHasMore(result.hasMore)
       setSearchActive(false)
+    } catch (error) {
+      reportRuntimeError('Encomendas.carregarListaInicial', error, { empresaId, empresaNome })
+      setItems([])
+      setErroTela('Nao foi possivel carregar a lista de encomendas.')
     } finally {
       setLoadingList(false)
     }
@@ -76,6 +83,13 @@ export default function Encomendas() {
         setCursor(result.cursor)
         setHasMore(result.hasMore)
         setSearchActive(false)
+        setErroTela('')
+      } catch (error) {
+        reportRuntimeError('Encomendas.useEffect.carregar', error, { empresaId, empresaNome })
+        if (active) {
+          setItems([])
+          setErroTela('Nao foi possivel carregar as encomendas desta empresa.')
+        }
       } finally {
         if (active) {
           setLoadingList(false)
@@ -114,6 +128,13 @@ export default function Encomendas() {
         ...current,
         [item.id]: { status: rowForm.status, descricao: '' },
       }))
+      setErroTela('')
+    } catch (error) {
+      reportRuntimeError('Encomendas.salvarStatus', error, {
+        codigo: item.codigo,
+        status: rowForm.status,
+      })
+      setErroTela('Nao foi possivel atualizar o status da encomenda.')
     } finally {
       setBusyId('')
     }
@@ -130,13 +151,23 @@ export default function Encomendas() {
     try {
       await deleteCollectionDocument('encomendas', item.id)
       await recarregarVisaoAtual()
+      setErroTela('')
+    } catch (error) {
+      reportRuntimeError('Encomendas.excluirEncomenda', error, { codigo: item.codigo, id: item.id })
+      setErroTela('Nao foi possivel excluir a encomenda.')
     } finally {
       setBusyId('')
     }
   }
 
   async function abrirPdf(item) {
-    await abrirComprovante(item, '_blank')
+    try {
+      await abrirComprovante(item, '_blank')
+      setErroTela('')
+    } catch (error) {
+      reportRuntimeError('Encomendas.abrirPdf', error, { codigo: item.codigo })
+      setErroTela('Nao foi possivel abrir o PDF desta encomenda.')
+    }
   }
 
   async function handleSearch(event, forcedTerm = null) {
@@ -156,6 +187,7 @@ export default function Encomendas() {
     }
 
     setLoadingList(true)
+    setErroTela('')
 
     try {
       const result = await searchEncomendas(term, 20, {
@@ -166,6 +198,10 @@ export default function Encomendas() {
       setCursor(null)
       setHasMore(false)
       setSearchActive(true)
+    } catch (error) {
+      reportRuntimeError('Encomendas.handleSearch', error, { term })
+      setItems([])
+      setErroTela('Nao foi possivel concluir a busca agora.')
     } finally {
       setLoadingList(false)
     }
@@ -198,6 +234,10 @@ export default function Encomendas() {
       setItems((current) => [...current, ...result.items])
       setCursor(result.cursor)
       setHasMore(result.hasMore)
+      setErroTela('')
+    } catch (error) {
+      reportRuntimeError('Encomendas.carregarMais', error, { cursor })
+      setErroTela('Nao foi possivel carregar mais encomendas.')
     } finally {
       setLoadingList(false)
     }
@@ -208,6 +248,11 @@ export default function Encomendas() {
       <div className="space-y-6">
         <PageShell title="Encomendas cadastradas" subtitle="Atualize status e consulte por codigo ou destinatario sem ler a colecao inteira." icon={<PackageIcon className="h-6 w-6" />}>
           <div className="space-y-4">
+            {erroTela ? (
+              <div className="rounded-[1.4rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                {erroTela}
+              </div>
+            ) : null}
             <form className="rounded-[1.5rem] border border-blue-100 bg-blue-50/60 p-4" onSubmit={handleSearch}>
               <div className="flex flex-col gap-3 md:flex-row md:items-end">
                 <Input

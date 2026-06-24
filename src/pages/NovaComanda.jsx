@@ -5,9 +5,10 @@ import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
 import { addCollectionDocument, criarEncomenda, gerarCodigoEncomenda, searchCollectionByField, updateCollectionDocument } from '../services/firebase.js'
-import { abrirComprovante } from '../utils/encomendaMedia.js'
+import { abrirComprovante, gerarComprovanteArquivo } from '../utils/encomendaMedia.js'
 import { gerarQRCode, montarRastreioUrl } from '../utils/gerarQRCode.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
+import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
 import { SYSTEM_NAME } from '../utils/systemConfig.js'
 
 const emptyCliente = {
@@ -75,6 +76,54 @@ function formatDateLabel(value) {
   return `${day}/${month}/${year}`
 }
 
+function criarMensagemCompartilhamento(encomenda) {
+  const codigo = encomenda?.codigo || '-'
+  const destinatario = encomenda?.destinatarioNome || 'destinatario'
+  const origem = encomenda?.terminalOrigem || '-'
+  const destino = encomenda?.terminalDestino || '-'
+
+  return [
+    `Comprovante de postagem do frete ${codigo}.`,
+    `Destinatario: ${destinatario}.`,
+    `Origem: ${origem}.`,
+    `Destino: ${destino}.`,
+  ].join(' ')
+}
+
+function criarNumeroWhatsapp(telefone) {
+  const digits = String(telefone || '').replace(/\D/g, '')
+
+  if (!digits) {
+    return ''
+  }
+
+  if (digits.length === 10 || digits.length === 11) {
+    return `55${digits}`
+  }
+
+  return digits
+}
+
+function suportaCompartilhamentoNativo(arquivo) {
+  if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+    return false
+  }
+
+  if (!arquivo) {
+    return true
+  }
+
+  if (typeof navigator.canShare === 'function') {
+    try {
+      return navigator.canShare({ files: [arquivo] })
+    } catch {
+      return false
+    }
+  }
+
+  return false
+}
+
 function formatarPrevisaoChegada(dataComanda, horarioSaida, duracaoMinutos) {
   if (!dataComanda || !horarioSaida || !Number.isFinite(Number(duracaoMinutos)) || Number(duracaoMinutos) <= 0) {
     return ''
@@ -140,6 +189,28 @@ function obterDuracaoLinhaMinutos(linha) {
 
   const encontrado = String(linha.tempoEstimado || '').match(/\d+/)
   return encontrado ? Number(encontrado[0]) : 0
+}
+
+function obterTerminalOrigemLinha(linha) {
+  if (linha?.terminalOrigem) {
+    return linha.terminalOrigem
+  }
+
+  const origem = String(linha?.origem || '').trim().toLowerCase()
+
+  if (origem === 'belém' || origem === 'belem') {
+    return 'THT Tamandaré'
+  }
+
+  if (origem === 'barcarena') {
+    return 'Terminal Hidroviario de Barcarena'
+  }
+
+  if (origem === 'são francisco' || origem === 'sao francisco') {
+    return 'Amazonat'
+  }
+
+  return ''
 }
 
 function normalizarBuscaCliente(valor) {
@@ -608,8 +679,8 @@ export default function NovaComanda() {
   const { user } = useAuth()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
-  const { items: rotasValores } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
-  const { items: embarcacoes } = useCollectionOnce('embarcacoes', { empresaId, empresaNome })
+  const { items: rotasValores, error: rotasError } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
+  const { items: embarcacoes, error: embarcacoesError } = useCollectionOnce('embarcacoes', { empresaId, empresaNome })
   const [form, setForm] = useState(createInitialForm)
   const [remetenteSugestoes, setRemetenteSugestoes] = useState([])
   const [destinatarioSugestoes, setDestinatarioSugestoes] = useState([])
@@ -620,7 +691,11 @@ export default function NovaComanda() {
   const [resultado, setResultado] = useState(null)
   const [qrCode, setQrCode] = useState('')
   const [loading, setLoading] = useState(false)
+  const [erroOperacao, setErroOperacao] = useState('')
+  const [compartilhamentoAberto, setCompartilhamentoAberto] = useState(false)
+  const [compartilhando, setCompartilhando] = useState(false)
   const clientesBuscaCacheRef = useRef(new Map())
+  const erroCargaTela = rotasError || embarcacoesError
 
   const totalFrete = Number(form.valorFrete || 0)
   const linhaOptions = useMemo(
@@ -663,6 +738,19 @@ export default function NovaComanda() {
     if (form.valorDeclaradoAtivo) items.push('Valor declarado')
     return items
   }, [form.possuiNotaFiscal, form.valorDeclaradoAtivo])
+
+  useEffect(() => {
+    if (!compartilhamentoAberto) {
+      return undefined
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [compartilhamentoAberto])
 
   function salvarBuscaNoCache(term, items) {
     const normalizedTerm = normalizarBuscaCliente(term)
@@ -736,12 +824,24 @@ export default function NovaComanda() {
       }
 
       setRemetenteLoading(true)
-      const items = await searchCollectionByField('clientes', 'nome', term, 5, { empresaId, empresaNome })
+      try {
+        const items = await searchCollectionByField('clientes', 'nome', term, 5, { empresaId, empresaNome })
 
-      if (active) {
-        salvarBuscaNoCache(term, items)
-        setRemetenteSugestoes(items)
-        setRemetenteLoading(false)
+        if (active) {
+          salvarBuscaNoCache(term, items)
+          setRemetenteSugestoes(items)
+          setErroOperacao('')
+        }
+      } catch (error) {
+        reportRuntimeError('NovaComanda.buscarRemetente', error, { term, empresaId, empresaNome })
+        if (active) {
+          setRemetenteSugestoes([])
+          setErroOperacao('Nao foi possivel buscar remetentes agora.')
+        }
+      } finally {
+        if (active) {
+          setRemetenteLoading(false)
+        }
       }
     }, 360)
 
@@ -770,12 +870,24 @@ export default function NovaComanda() {
       }
 
       setDestinatarioLoading(true)
-      const items = await searchCollectionByField('clientes', 'nome', term, 5, { empresaId, empresaNome })
+      try {
+        const items = await searchCollectionByField('clientes', 'nome', term, 5, { empresaId, empresaNome })
 
-      if (active) {
-        salvarBuscaNoCache(term, items)
-        setDestinatarioSugestoes(items)
-        setDestinatarioLoading(false)
+        if (active) {
+          salvarBuscaNoCache(term, items)
+          setDestinatarioSugestoes(items)
+          setErroOperacao('')
+        }
+      } catch (error) {
+        reportRuntimeError('NovaComanda.buscarDestinatario', error, { term, empresaId, empresaNome })
+        if (active) {
+          setDestinatarioSugestoes([])
+          setErroOperacao('Nao foi possivel buscar destinatarios agora.')
+        }
+      } finally {
+        if (active) {
+          setDestinatarioLoading(false)
+        }
       }
     }, 360)
 
@@ -846,6 +958,7 @@ export default function NovaComanda() {
     setQrCode('')
     setQuickAddTarget(null)
     setQuickAddForm(emptyCliente)
+    setCompartilhamentoAberto(false)
   }
 
   function pickCliente(target, cliente) {
@@ -897,41 +1010,47 @@ export default function NovaComanda() {
       return
     }
 
-    const novo = await addCollectionDocument('clientes', {
-      nome: quickAddForm.nome.trim(),
-      telefone: quickAddForm.telefone.trim(),
-      email: quickAddForm.email.trim(),
-      documento: quickAddForm.documento.trim(),
-      cidade: quickAddForm.cidade.trim(),
-      empresaId: user?.empresaId || '',
-      empresaNome: user?.empresaNome || '',
-    })
+    try {
+      const novo = await addCollectionDocument('clientes', {
+        nome: quickAddForm.nome.trim(),
+        telefone: quickAddForm.telefone.trim(),
+        email: quickAddForm.email.trim(),
+        documento: quickAddForm.documento.trim(),
+        cidade: quickAddForm.cidade.trim(),
+        empresaId: user?.empresaId || '',
+        empresaNome: user?.empresaNome || '',
+      })
 
-    if (quickAddTarget === 'remetente') {
-      salvarClienteNosCaches(novo)
-      setForm((current) => ({
-        ...current,
-        remetenteId: novo.id,
-        remetenteNome: novo.nome,
-        remetenteDocumento: novo.documento || '',
-        remetenteTelefone: novo.telefone || '',
-        remetenteEmail: novo.email || '',
-      }))
-      setRemetenteSugestoes([])
-    } else {
-      salvarClienteNosCaches(novo)
-      setForm((current) => ({
-        ...current,
-        destinatarioId: novo.id,
-        destinatarioNome: novo.nome,
-        destinatarioTelefone: novo.telefone || '',
-        destinatarioEmail: novo.email || '',
-      }))
-      setDestinatarioSugestoes([])
+      if (quickAddTarget === 'remetente') {
+        salvarClienteNosCaches(novo)
+        setForm((current) => ({
+          ...current,
+          remetenteId: novo.id,
+          remetenteNome: novo.nome,
+          remetenteDocumento: novo.documento || '',
+          remetenteTelefone: novo.telefone || '',
+          remetenteEmail: novo.email || '',
+        }))
+        setRemetenteSugestoes([])
+      } else {
+        salvarClienteNosCaches(novo)
+        setForm((current) => ({
+          ...current,
+          destinatarioId: novo.id,
+          destinatarioNome: novo.nome,
+          destinatarioTelefone: novo.telefone || '',
+          destinatarioEmail: novo.email || '',
+        }))
+        setDestinatarioSugestoes([])
+      }
+
+      setErroOperacao('')
+      setQuickAddTarget(null)
+      setQuickAddForm(emptyCliente)
+    } catch (error) {
+      reportRuntimeError('NovaComanda.saveQuickAdd', error, { quickAddTarget })
+      setErroOperacao('Nao foi possivel cadastrar o cliente rapido agora.')
     }
-
-    setQuickAddTarget(null)
-    setQuickAddForm(emptyCliente)
   }
 
   async function salvarClienteAutomatico(target) {
@@ -1023,6 +1142,7 @@ export default function NovaComanda() {
   async function handleSubmit(event) {
     event.preventDefault()
     setLoading(true)
+    setErroOperacao('')
 
     try {
       const [remetenteId, destinatarioId] = await Promise.all([
@@ -1051,13 +1171,22 @@ export default function NovaComanda() {
         empresaNome: user?.empresaNome || SYSTEM_NAME,
         valorDeclarado: form.valorDeclaradoAtivo ? form.valorMercadoria : '',
         possuiNotaFiscal: form.possuiNotaFiscal,
-        terminalOrigem: SYSTEM_NAME,
+        terminalOrigem: obterTerminalOrigemLinha(linhaSelecionada) || SYSTEM_NAME,
         terminalDestino: linhaSelecionada?.terminalDestino || linhaSelecionada?.destino || form.terminalDestino,
         descricao: form.descricao || form.tipoMercadoria,
       })
 
       setResultado(created)
       setQrCode(qr)
+      setCompartilhamentoAberto(true)
+    } catch (error) {
+      reportRuntimeError('NovaComanda.handleSubmit', error, {
+        rotaId: form.rotaId,
+        linhaNome: form.linhaNome,
+        embarcacaoId: form.embarcacaoId,
+        embarcacaoNome: form.embarcacaoNome,
+      })
+      setErroOperacao('Nao foi possivel salvar a comanda agora.')
     } finally {
       setLoading(false)
     }
@@ -1068,18 +1197,210 @@ export default function NovaComanda() {
       return
     }
 
-    await abrirComprovante(
-      {
+    try {
+      await abrirComprovante(
+        {
+          ...resultado,
+          qrCodeDataUrl: qrCode || resultado.qrCodeDataUrl,
+        },
+        '_blank',
+      )
+      setErroOperacao('')
+    } catch (error) {
+      reportRuntimeError('NovaComanda.handlePrint', error, { codigo: resultado.codigo })
+      setErroOperacao('Nao foi possivel abrir o comprovante agora.')
+    }
+  }
+
+  async function compartilharComprovante(canal) {
+    if (!resultado) {
+      return
+    }
+
+    setCompartilhando(true)
+    setErroOperacao('')
+
+    try {
+      const encomendaCompartilhamento = {
         ...resultado,
         qrCodeDataUrl: qrCode || resultado.qrCodeDataUrl,
-      },
-      '_blank',
-    )
+      }
+      const arquivo = await gerarComprovanteArquivo(encomendaCompartilhamento)
+      const pdfUrl = URL.createObjectURL(arquivo)
+      const mensagem = criarMensagemCompartilhamento(encomendaCompartilhamento)
+      const assunto = `Comprovante de postagem ${resultado.codigo || ''}`.trim()
+
+      window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000)
+      window.open(pdfUrl, '_blank', 'noopener,noreferrer')
+
+      if (canal === 'email') {
+        const emailDestino = String(resultado.destinatarioEmail || '').trim()
+        const mailto = `mailto:${encodeURIComponent(emailDestino)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(`${mensagem}\n\nO PDF foi aberto em outra aba para anexar ao e-mail.`)}`
+        window.location.href = mailto
+      } else {
+        const numeroWhatsapp = criarNumeroWhatsapp(resultado.destinatarioTelefone)
+        const baseUrl = numeroWhatsapp ? `https://wa.me/${numeroWhatsapp}` : 'https://wa.me/'
+        const texto = `${mensagem} O PDF foi aberto em outra aba para voce anexar no WhatsApp.`
+        window.open(`${baseUrl}?text=${encodeURIComponent(texto)}`, '_blank', 'noopener,noreferrer')
+      }
+
+      setCompartilhamentoAberto(false)
+    } catch (error) {
+      reportRuntimeError('NovaComanda.compartilharComprovante', error, {
+        canal,
+        codigo: resultado.codigo,
+      })
+      setErroOperacao('Nao foi possivel preparar o compartilhamento do comprovante agora.')
+    } finally {
+      setCompartilhando(false)
+    }
+  }
+
+  async function compartilharComprovanteNativo() {
+    if (!resultado) {
+      return
+    }
+
+    setCompartilhando(true)
+    setErroOperacao('')
+
+    try {
+      const encomendaCompartilhamento = {
+        ...resultado,
+        qrCodeDataUrl: qrCode || resultado.qrCodeDataUrl,
+      }
+      const arquivo = await gerarComprovanteArquivo(encomendaCompartilhamento)
+      const mensagem = criarMensagemCompartilhamento(encomendaCompartilhamento)
+      const assunto = `Comprovante de postagem ${resultado.codigo || ''}`.trim()
+
+      if (!suportaCompartilhamentoNativo(arquivo)) {
+        throw new Error('native-share-not-supported')
+      }
+
+      await navigator.share({
+        title: assunto,
+        text: mensagem,
+        files: [arquivo],
+      })
+
+      setCompartilhamentoAberto(false)
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        return
+      }
+
+      if (error?.message === 'native-share-not-supported') {
+        setErroOperacao('Este aparelho nao suporta compartilhamento nativo do PDF. Use e-mail ou WhatsApp abaixo.')
+        return
+      }
+
+      reportRuntimeError('NovaComanda.compartilharComprovanteNativo', error, {
+        codigo: resultado.codigo,
+      })
+      setErroOperacao('Nao foi possivel abrir o compartilhamento nativo agora.')
+    } finally {
+      setCompartilhando(false)
+    }
   }
 
   return (
     <Layout immersive>
       <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.16),transparent_32%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)]">
+        {compartilhamentoAberto ? (
+          <div className="fixed inset-0 z-40 flex items-end justify-center bg-[#0a2d61]/55 px-4 pb-4 pt-10 backdrop-blur-[2px] sm:items-center">
+            <div className="w-full max-w-[28rem] rounded-[2rem] bg-white p-6 shadow-[0_24px_70px_rgba(4,18,42,0.38)]">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#1657d8]">Frete gerado</p>
+                  <h2 className="mt-2 text-[1.5rem] font-bold leading-tight text-slate-950">Compartilhar comprovante de postagem</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                    Escolha como deseja enviar o PDF do frete <span className="font-bold text-slate-700">{resultado?.codigo}</span>.
+                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                    O comprovante sera aberto em outra aba para anexar no canal escolhido.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCompartilhamentoAberto(false)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-400"
+                  aria-label="Fechar compartilhamento"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+
+              <div className="mt-6 grid gap-3">
+                <button
+                  type="button"
+                  onClick={compartilharComprovanteNativo}
+                  disabled={compartilhando}
+                  className="flex w-full items-center justify-between rounded-[1.5rem] border border-[#1657d8]/20 bg-[linear-gradient(135deg,#eff6ff,#ffffff)] px-4 py-4 text-left transition hover:border-[#1c63e7] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>
+                    <span className="block text-base font-bold text-slate-950">Compartilhar no celular</span>
+                    <span className="mt-1 block text-sm text-slate-500">
+                      Envia o PDF direto pelo menu nativo do aparelho para WhatsApp, e-mail e outros apps
+                    </span>
+                  </span>
+                  <ShareIcon />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => compartilharComprovante('email')}
+                  disabled={compartilhando}
+                  className="flex w-full items-center justify-between rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:border-[#1c63e7] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>
+                    <span className="block text-base font-bold text-slate-950">Enviar por e-mail</span>
+                    <span className="mt-1 block text-sm text-slate-500">
+                      {resultado?.destinatarioEmail ? resultado.destinatarioEmail : 'Abrir cliente de e-mail para preencher o envio'}
+                    </span>
+                  </span>
+                  <MailIcon />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => compartilharComprovante('whatsapp')}
+                  disabled={compartilhando}
+                  className="flex w-full items-center justify-between rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:border-[#1c63e7] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>
+                    <span className="block text-base font-bold text-slate-950">Enviar por WhatsApp</span>
+                    <span className="mt-1 block text-sm text-slate-500">
+                      {resultado?.destinatarioTelefone ? resultado.destinatarioTelefone : 'Abrir WhatsApp para escolher o contato'}
+                    </span>
+                  </span>
+                  <WhatsAppIcon />
+                </button>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handlePrint}
+                  disabled={compartilhando}
+                  className="w-full"
+                >
+                  Ver comprovante
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setCompartilhamentoAberto(false)}
+                  disabled={compartilhando}
+                  className="w-full"
+                >
+                  Agora nao
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mx-auto flex min-h-screen w-full max-w-[540px] flex-col">
           <header className="rounded-b-[2.5rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] px-5 pb-7 pt-7 text-white shadow-[0_20px_55px_rgba(7,45,103,0.42)]">
             <div className="flex items-start justify-between gap-4">
@@ -1106,6 +1427,11 @@ export default function NovaComanda() {
           </header>
 
           <main className="flex-1 px-5 pb-6 pt-5">
+            {erroCargaTela || erroOperacao ? (
+              <div className="mb-4 rounded-[1.4rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                {erroOperacao || 'Nao foi possivel carregar os dados auxiliares desta tela.'}
+              </div>
+            ) : null}
             <form className="space-y-4" onSubmit={handleSubmit}>
               <CompactScheduleCardRefined
                 dataComanda={form.dataComanda}
@@ -1404,6 +1730,35 @@ function PlusSmallIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+function MailIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 text-[#1657d8]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 6h16v12H4z" />
+      <path d="m5 7 7 6 7-6" />
+    </svg>
+  )
+}
+
+function ShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 text-[#1657d8]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4" />
+    </svg>
+  )
+}
+
+function WhatsAppIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 text-[#17a34a]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 11.5a8 8 0 0 1-11.7 7.1L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z" />
+      <path d="M9.7 9.2c.2-.4.4-.4.6-.4h.5c.2 0 .4 0 .6.5.2.5.8 1.8.9 1.9.1.2.1.4 0 .6l-.4.5c-.1.1-.2.3 0 .5.3.6 1 1.5 2 2 .3.1.5.1.7-.1l.5-.6c.2-.2.4-.2.6-.1l1.8.9c.2.1.4.3.3.6-.1.5-.4 1.3-.9 1.6-.4.2-.8.5-2 .3-1-.2-2.3-.9-3.5-2-1.4-1.3-2.2-2.8-2.5-3.8-.3-1.1 0-1.7.3-2.1Z" />
     </svg>
   )
 }

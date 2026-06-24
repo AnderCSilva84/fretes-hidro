@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from '../components/ProtectedRoute.jsx'
+import RouteErrorBoundary from '../components/RouteErrorBoundary.jsx'
 
 const Login = lazy(() => import('../pages/Login.jsx'))
 const Rastreio = lazy(() => import('../pages/Rastreio.jsx'))
@@ -20,36 +21,38 @@ const Usuarios = lazy(() => import('../pages/Usuarios.jsx'))
 
 export default function AppRoutes() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center px-4 text-sm text-slate-500">
-          Carregando módulo...
-        </div>
-      }
-    >
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/rastreio/:codigo" element={<Rastreio />} />
-        <Route element={<ProtectedRoute />}>
-          <Route path="/" element={<Navigate to="/nova-comanda" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/nova-comanda" element={<NovaComanda />} />
-          <Route path="/clientes" element={<Clientes />} />
-          <Route path="/terminais" element={<Terminais />} />
-          <Route path="/embarcacoes" element={<Embarcacoes />} />
-          <Route path="/rotas-valores" element={<RotasValores />} />
-          <Route path="/encomendas" element={<Encomendas />} />
-          <Route path="/scanner-retirada" element={<ScannerRetirada />} />
-          <Route path="/retirada/:codigo" element={<RetiradaEntrega />} />
-          <Route path="/caixa" element={<Caixa />} />
-        </Route>
-        <Route element={<ProtectedRoute requiredPerfil="superadmin" />}>
-          <Route path="/usuarios" element={<Usuarios />} />
-          <Route path="/empresas" element={<Empresas />} />
-          <Route path="/logs-uso" element={<LogsUso />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/nova-comanda" replace />} />
-      </Routes>
-    </Suspense>
+    <RouteErrorBoundary>
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center px-4 text-sm text-slate-500">
+            Carregando modulo...
+          </div>
+        }
+      >
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/rastreio/:codigo" element={<Rastreio />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/" element={<Navigate to="/nova-comanda" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/nova-comanda" element={<NovaComanda />} />
+            <Route path="/clientes" element={<Clientes />} />
+            <Route path="/terminais" element={<Terminais />} />
+            <Route path="/embarcacoes" element={<Embarcacoes />} />
+            <Route path="/rotas-valores" element={<RotasValores />} />
+            <Route path="/encomendas" element={<Encomendas />} />
+            <Route path="/scanner-retirada" element={<ScannerRetirada />} />
+            <Route path="/retirada/:codigo" element={<RetiradaEntrega />} />
+            <Route path="/caixa" element={<Caixa />} />
+          </Route>
+          <Route element={<ProtectedRoute requiredPerfil="superadmin" />}>
+            <Route path="/usuarios" element={<Usuarios />} />
+            <Route path="/empresas" element={<Empresas />} />
+            <Route path="/logs-uso" element={<LogsUso />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/nova-comanda" replace />} />
+        </Routes>
+      </Suspense>
+    </RouteErrorBoundary>
   )
 }

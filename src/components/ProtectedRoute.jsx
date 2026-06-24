@@ -5,7 +5,11 @@ export default function ProtectedRoute({ requiredPerfil = null }) {
   const { ready, user } = useAuth()
 
   if (!ready) {
-    return null
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4 text-sm font-medium text-slate-500">
+        Carregando acesso...
+      </div>
+    )
   }
 
   if (!user) {
