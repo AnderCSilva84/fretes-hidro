@@ -21,6 +21,45 @@ const emptyCliente = {
 
 const documentOptions = ['Nota fiscal', 'Valor declarado']
 const freightChargeOptions = ['Pago', 'A receber']
+
+function createFreightItem() {
+  return {
+    id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    descricao: '',
+    observacao: '',
+    valorFrete: '',
+  }
+}
+
+function normalizarItensFrete(itens = []) {
+  return itens
+    .map((item) => ({
+      ...item,
+      descricao: String(item?.descricao || '').trim(),
+      observacao: String(item?.observacao || '').trim(),
+      valorFrete: String(item?.valorFrete ?? '').trim(),
+    }))
+    .filter((item) => item.descricao || item.observacao || item.valorFrete)
+}
+
+function resumirItensFrete(itens = []) {
+  const ativos = normalizarItensFrete(itens)
+
+  if (!ativos.length) {
+    return ''
+  }
+
+  return ativos
+    .map((item, index) => {
+      const partes = [item.descricao || `Item ${index + 1}`]
+      if (item.observacao) {
+        partes.push(item.observacao)
+      }
+      return partes.join(' - ')
+    })
+    .join(' | ')
+}
+
 const bottomNav = [
   { to: '/nova-comanda', label: 'Novo Frete', active: true, icon: PlusIcon },
   { to: '/encomendas', label: 'Consultar', icon: ListIcon },
@@ -55,6 +94,7 @@ function createInitialForm() {
     freteCobranca: 'A receber',
     valorFrete: '',
     valorFreteManual: false,
+    itens: [createFreightItem()],
     descricao: '',
     quantidade: 1,
     peso: '',
@@ -211,6 +251,27 @@ function obterTerminalOrigemLinha(linha) {
   }
 
   return ''
+}
+
+function obterTerminaisDestinoLinha(linha) {
+  if (Array.isArray(linha?.terminaisDestino) && linha.terminaisDestino.length) {
+    return linha.terminaisDestino.map((item) => String(item || '').trim()).filter(Boolean)
+  }
+
+  if (linha?.terminalDestino) {
+    return [String(linha.terminalDestino).trim()].filter(Boolean)
+  }
+
+  if (linha?.destino) {
+    return [String(linha.destino).trim()].filter(Boolean)
+  }
+
+  return []
+}
+
+function linhaDisponivelNoModulo(linha, modulo) {
+  const exibirEm = String(linha?.exibirEm || 'ambos').trim().toLowerCase()
+  return exibirEm === 'ambos' || exibirEm === modulo
 }
 
 function normalizarBuscaCliente(valor) {
@@ -533,7 +594,7 @@ function SegmentedChoice({ title, icon, options, activeValues, onToggle, single 
   )
 }
 
-function AmountCard({ title, value, onChange, large = false, icon }) {
+function AmountCard({ title, value, onChange, large = false, icon, readOnly = false }) {
   return (
     <Card className={`${large ? '' : 'h-full'} px-6 py-6`}>
       <div className="w-full">
@@ -545,28 +606,71 @@ function AmountCard({ title, value, onChange, large = false, icon }) {
             min="0"
             value={value}
             onChange={(event) => onChange(event.target.value)}
+            readOnly={readOnly}
             placeholder="0,00"
-            className={`mt-1 h-16 w-full rounded-[1.6rem] border border-slate-200 bg-white px-5 text-center font-bold text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 ${large ? 'text-[2.5rem]' : 'text-[2.2rem]'}`}
+            className={`mt-1 h-16 w-full rounded-[1.6rem] border border-slate-200 bg-white px-5 text-center font-bold text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 ${readOnly ? 'cursor-default bg-slate-50' : ''} ${large ? 'text-[2.5rem]' : 'text-[2.2rem]'}`}
           />
+          {readOnly ? (
+            <p className="mt-3 text-center text-sm text-slate-500">
+              Com varios itens, ajuste o valor em cada item para formar o total.
+            </p>
+          ) : null}
         </div>
       </div>
     </Card>
   )
 }
 
-function ObservationsCard({ value, onChange }) {
+function FreightItemsCard({ itens, onChangeItem, onAddItem, onRemoveItem }) {
   return (
     <Card className="px-6 py-6">
       <div className="w-full">
-        <CardHeader icon={<NoteIcon />} title="Observacoes" />
-        <div className="mx-auto mt-4 w-full max-w-[28rem]">
-          <textarea
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            rows={3}
-            placeholder="Ex.: informacoes adicionais..."
-            className="mt-3 w-full resize-none border-none bg-transparent p-0 text-center text-[1.15rem] font-medium text-slate-900 outline-none placeholder:text-slate-400"
-          />
+        <CardHeader icon={<NoteIcon />} title="Itens da comanda">
+          <p className="mt-2 text-sm text-slate-500">Adicione quantos volumes precisar, cada um com sua descricao, observacao e valor.</p>
+        </CardHeader>
+        <div className="mt-5 space-y-4">
+          {itens.map((item, index) => (
+            <div key={item.id} className="rounded-[1.4rem] border border-slate-200 bg-slate-50/70 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-sm font-bold uppercase tracking-[0.08em] text-slate-600">Item {index + 1}</p>
+                {itens.length > 1 ? (
+                  <Button type="button" variant="ghost" onClick={() => onRemoveItem(item.id)} className="min-h-10 rounded-xl px-3 py-2 text-xs">
+                    Remover
+                  </Button>
+                ) : null}
+              </div>
+              <div className="grid gap-3">
+                <input
+                  value={item.descricao}
+                  onChange={(event) => onChangeItem(item.id, 'descricao', event.target.value)}
+                  placeholder="Descricao do volume"
+                  className="h-11 w-full rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.95rem] font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                />
+                <textarea
+                  value={item.observacao}
+                  onChange={(event) => onChangeItem(item.id, 'observacao', event.target.value)}
+                  rows={2}
+                  placeholder="Observacao do item"
+                  className="w-full resize-none rounded-[1rem] border border-slate-200 bg-white px-3 py-3 text-[0.95rem] font-medium text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={item.valorFrete}
+                  onChange={(event) => onChangeItem(item.id, 'valorFrete', event.target.value)}
+                  placeholder="Valor do frete deste item"
+                  className="h-11 w-full rounded-[1rem] border border-slate-200 bg-white px-3 text-[0.95rem] font-bold text-slate-900 outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+          ))}
+
+          <div className="flex justify-center">
+            <Button type="button" variant="secondary" onClick={onAddItem} className="w-full max-w-[20rem]">
+              + Inserir item
+            </Button>
+          </div>
         </div>
       </div>
     </Card>
@@ -575,6 +679,7 @@ function ObservationsCard({ value, onChange }) {
 
 function SummaryBlock({ form, total, horarioSaidaEfetivo, previsaoChegada, embarcacaoNome }) {
   const documentType = form.valorDeclaradoAtivo ? 'Valor Declarado' : form.possuiNotaFiscal ? 'Nota Fiscal' : 'Nao definido'
+  const totalItens = normalizarItensFrete(form.itens).length || 1
 
   return (
     <section className="rounded-[1.85rem] border border-blue-200 bg-[linear-gradient(135deg,rgba(239,246,255,0.96),rgba(255,255,255,0.98))] p-5 shadow-[0_16px_40px_rgba(28,99,231,0.09)]">
@@ -596,6 +701,7 @@ function SummaryBlock({ form, total, horarioSaidaEfetivo, previsaoChegada, embar
         <SummaryItem label="Linha" value={form.linhaNome || 'Nao informada'} />
         <SummaryItem label="Destino" value={form.terminalDestino || 'Nao informado'} />
         <SummaryItem label="Destinatario" value={form.destinatarioNome || 'Nao informado'} />
+        <SummaryItem label="Itens" value={String(totalItens)} />
         <SummaryItem label="Tipo de documento" value={documentType} />
         <SummaryItem label="Frete" value={form.freteCobranca} pill />
         <SummaryItem label="Valor mercadoria" value={formatCurrency(form.valorMercadoria)} />
@@ -679,7 +785,8 @@ export default function NovaComanda() {
   const { user } = useAuth()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
-  const { items: rotasValores, error: rotasError } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
+  const { items: empresas } = useCollectionOnce('empresas')
+  const { items: rotasValoresBase, error: rotasError } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
   const { items: embarcacoes, error: embarcacoesError } = useCollectionOnce('embarcacoes', { empresaId, empresaNome })
   const [form, setForm] = useState(createInitialForm)
   const [remetenteSugestoes, setRemetenteSugestoes] = useState([])
@@ -697,7 +804,23 @@ export default function NovaComanda() {
   const clientesBuscaCacheRef = useRef(new Map())
   const erroCargaTela = rotasError || embarcacoesError
 
-  const totalFrete = Number(form.valorFrete || 0)
+  const empresaAtual = useMemo(
+    () => empresas.find((item) => item.id === user?.empresaId) || null,
+    [empresas, user?.empresaId],
+  )
+  const totalFrete = useMemo(() => {
+    const itens = normalizarItensFrete(form.itens)
+
+    if (itens.length) {
+      return itens.reduce((total, item) => total + Number(item.valorFrete || 0), 0)
+    }
+
+    return Number(form.valorFrete || 0)
+  }, [form.itens, form.valorFrete])
+  const rotasValores = useMemo(
+    () => rotasValoresBase.filter((item) => linhaDisponivelNoModulo(item, 'fretes')),
+    [rotasValoresBase],
+  )
   const linhaOptions = useMemo(
     () => rotasValores.map((item) => `${item.origem} - ${item.destino}`).filter(Boolean),
     [rotasValores],
@@ -920,10 +1043,48 @@ export default function NovaComanda() {
           ...current,
           valorFrete: value,
           valorFreteManual: true,
+          itens: current.itens.map((item, index) => (index === 0 ? { ...item, valorFrete: value } : item)),
         }
       }
 
       return { ...current, [key]: value }
+    })
+  }
+
+  function updateFreightItem(itemId, field, value) {
+    setForm((current) => {
+      const itens = current.itens.map((item) => (item.id === itemId ? { ...item, [field]: value } : item))
+      return {
+        ...current,
+        itens,
+        valorFrete: String(
+          normalizarItensFrete(itens).reduce((total, item) => total + Number(item.valorFrete || 0), 0),
+        ),
+        valorFreteManual: true,
+      }
+    })
+  }
+
+  function addFreightItem() {
+    setForm((current) => ({
+      ...current,
+      itens: [...current.itens, createFreightItem()],
+      valorFreteManual: true,
+    }))
+  }
+
+  function removeFreightItem(itemId) {
+    setForm((current) => {
+      const itens = current.itens.filter((item) => item.id !== itemId)
+      const proximosItens = itens.length ? itens : [createFreightItem()]
+      return {
+        ...current,
+        itens: proximosItens,
+        valorFrete: String(
+          normalizarItensFrete(proximosItens).reduce((total, item) => total + Number(item.valorFrete || 0), 0),
+        ),
+        valorFreteManual: true,
+      }
     })
   }
 
@@ -942,13 +1103,17 @@ export default function NovaComanda() {
 
   function handleChangeLinha(linhaNome) {
     const linhaEscolhida = rotasValores.find((item) => `${item.origem} - ${item.destino}` === linhaNome)
+    const terminaisDestino = obterTerminaisDestinoLinha(linhaEscolhida)
 
     setForm((current) => ({
       ...current,
       rotaId: linhaEscolhida?.id || '',
       linhaNome,
-      terminalDestino: linhaEscolhida?.terminalDestino || linhaEscolhida?.destino || '',
+      terminalDestino: terminaisDestino[0] || linhaEscolhida?.destino || '',
       valorFrete: current.valorFreteManual ? current.valorFrete : String(linhaEscolhida?.valor || ''),
+      itens: current.valorFreteManual
+        ? current.itens
+        : current.itens.map((item, index) => (index === 0 ? { ...item, valorFrete: String(linhaEscolhida?.valor || '') } : item)),
     }))
   }
 
@@ -1145,6 +1310,7 @@ export default function NovaComanda() {
     setErroOperacao('')
 
     try {
+      const itensFrete = normalizarItensFrete(form.itens)
       const [remetenteId, destinatarioId] = await Promise.all([
         salvarClienteAutomatico('remetente'),
         salvarClienteAutomatico('destinatario'),
@@ -1169,11 +1335,15 @@ export default function NovaComanda() {
         operadorEmail: user?.email || '',
         empresaId: user?.empresaId || '',
         empresaNome: user?.empresaNome || SYSTEM_NAME,
+        empresaTelefoneSac: empresaAtual?.telefoneSac || empresaAtual?.telefone || '',
         valorDeclarado: form.valorDeclaradoAtivo ? form.valorMercadoria : '',
         possuiNotaFiscal: form.possuiNotaFiscal,
         terminalOrigem: obterTerminalOrigemLinha(linhaSelecionada) || SYSTEM_NAME,
-        terminalDestino: linhaSelecionada?.terminalDestino || linhaSelecionada?.destino || form.terminalDestino,
-        descricao: form.descricao || form.tipoMercadoria,
+        terminalDestino: form.terminalDestino || linhaSelecionada?.terminalDestino || linhaSelecionada?.destino,
+        descricao: resumirItensFrete(itensFrete) || form.descricao || form.tipoMercadoria,
+        itens: itensFrete,
+        quantidade: itensFrete.length || form.quantidade,
+        valorFrete: totalFrete,
       })
 
       setResultado(created)
@@ -1305,7 +1475,7 @@ export default function NovaComanda() {
 
   return (
     <Layout immersive>
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.16),transparent_32%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)]">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.24),transparent_34%),linear-gradient(180deg,#eef5ff_0%,#dbeafe_100%)]">
         {compartilhamentoAberto ? (
           <div className="fixed inset-0 z-40 flex items-end justify-center bg-[#0a2d61]/55 px-4 pb-4 pt-10 backdrop-blur-[2px] sm:items-center">
             <div className="w-full max-w-[28rem] rounded-[2rem] bg-white p-6 shadow-[0_24px_70px_rgba(4,18,42,0.38)]">
@@ -1487,6 +1657,15 @@ export default function NovaComanda() {
                 onChange={handleChangeLinha}
               />
 
+              {obterTerminaisDestinoLinha(linhaSelecionada).length > 1 ? (
+                <SelectCard
+                  title="Terminal destino"
+                  value={form.terminalDestino || 'Selecionar terminal'}
+                  options={obterTerminaisDestinoLinha(linhaSelecionada)}
+                  onChange={(value) => updateForm('terminalDestino', value)}
+                />
+              ) : null}
+
               <SegmentedChoice
                 title="Tipo de documento"
                 icon={<DocumentIcon />}
@@ -1514,14 +1693,20 @@ export default function NovaComanda() {
                 />
 
                 <AmountCard
-                  title="Valor"
-                  value={form.valorFrete}
+                  title="Total do frete"
+                  value={String(totalFrete || '')}
                   onChange={(value) => updateForm('valorFrete', value)}
                   icon={<MoneyIcon />}
+                  readOnly={form.itens.length > 1}
                 />
               </div>
 
-              <ObservationsCard value={form.descricao} onChange={(value) => updateForm('descricao', value)} />
+              <FreightItemsCard
+                itens={form.itens}
+                onChangeItem={updateFreightItem}
+                onAddItem={addFreightItem}
+                onRemoveItem={removeFreightItem}
+              />
 
               {quickAddTarget ? (
                 <QuickAddPanel

@@ -13,24 +13,29 @@ import {
   searchCollectionByField,
   updateCollectionDocument,
 } from '../services/firebase.js'
+
 const initialForm = {
   nome: '',
   identificacao: '',
   capacidade: '',
   empresaId: '',
   empresaNome: '',
-  horariosPartida: [''],
+  rotasIds: [],
+  linhasNomes: [],
 }
 
 const PAGE_SIZE = 12
 
-function normalizarHorarios(horarios = []) {
-  return horarios.map((item) => String(item || '').trim()).filter(Boolean)
+function getLinhaLabel(rota) {
+  return `${rota?.origem || ''} - ${rota?.destino || ''}`.trim()
 }
 
 export default function Embarcacoes() {
   const { user } = useAuth()
+  const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
+  const empresaNome = user?.empresaNome || ''
   const { items: empresas } = useCollectionOnce('empresas')
+  const { items: rotas } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
   const [items, setItems] = useState([])
   const [form, setForm] = useState(initialForm)
   const [editingId, setEditingId] = useState(null)
@@ -41,10 +46,31 @@ export default function Embarcacoes() {
   const [hasMore, setHasMore] = useState(false)
   const [searchActive, setSearchActive] = useState(false)
 
+  function toggleRota(rotaId) {
+    const rotaSelecionada = rotas.find((item) => item.id === rotaId) || null
+    const linhaNome = getLinhaLabel(rotaSelecionada)
+
+    setForm((current) => {
+      const marcada = current.rotasIds.includes(rotaId)
+
+      if (marcada) {
+        return {
+          ...current,
+          rotasIds: current.rotasIds.filter((item) => item !== rotaId),
+          linhasNomes: current.linhasNomes.filter((item) => item !== linhaNome),
+        }
+      }
+
+      return {
+        ...current,
+        rotasIds: [...current.rotasIds, rotaId],
+        linhasNomes: [...current.linhasNomes, linhaNome].filter(Boolean),
+      }
+    })
+  }
+
   useEffect(() => {
     let active = true
-    const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
-    const empresaNome = user?.empresaNome || ''
 
     async function carregar() {
       setLoadingList(true)
@@ -78,32 +104,7 @@ export default function Embarcacoes() {
     return () => {
       active = false
     }
-  }, [user?.empresaId, user?.empresaNome, user?.rootSuperadmin])
-
-  function atualizarHorario(index, value) {
-    setForm((current) => ({
-      ...current,
-      horariosPartida: current.horariosPartida.map((item, itemIndex) => (itemIndex === index ? value : item)),
-    }))
-  }
-
-  function adicionarHorario() {
-    setForm((current) => ({
-      ...current,
-      horariosPartida: [...current.horariosPartida, ''],
-    }))
-  }
-
-  function removerHorario(index) {
-    setForm((current) => {
-      const proximos = current.horariosPartida.filter((_, itemIndex) => itemIndex !== index)
-
-      return {
-        ...current,
-        horariosPartida: proximos.length ? proximos : [''],
-      }
-    })
-  }
+  }, [empresaId, empresaNome])
 
   function cancelarEdicao() {
     setEditingId(null)
@@ -118,14 +119,13 @@ export default function Embarcacoes() {
       capacidade: item.capacidade || '',
       empresaId: item.empresaId || '',
       empresaNome: item.empresaNome || '',
-      horariosPartida: item.horariosPartida?.length ? item.horariosPartida : item.horarioPartidaPadrao ? [item.horarioPartidaPadrao] : [''],
+      rotasIds: Array.isArray(item.rotasIds) ? item.rotasIds : [],
+      linhasNomes: Array.isArray(item.linhasNomes) ? item.linhasNomes : [],
     })
   }
 
   async function carregarListaInicial() {
     setLoadingList(true)
-    const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
-    const empresaNome = user?.empresaNome || ''
 
     try {
       const result = await listCollectionPage('embarcacoes', {
@@ -150,15 +150,15 @@ export default function Embarcacoes() {
     setBusy(true)
 
     try {
-      const horariosPartida = normalizarHorarios(form.horariosPartida).sort()
+      const rotasSelecionadas = rotas.filter((item) => form.rotasIds.includes(item.id))
       const payload = {
         nome: form.nome.trim(),
         identificacao: form.identificacao.trim(),
         capacidade: form.capacidade.trim(),
         empresaId: form.empresaId,
         empresaNome: form.empresaNome,
-        horariosPartida,
-        horarioPartidaPadrao: horariosPartida[0] || '',
+        rotasIds: form.rotasIds,
+        linhasNomes: rotasSelecionadas.map((item) => getLinhaLabel(item)).filter(Boolean),
       }
 
       if (editingId) {
@@ -223,8 +223,8 @@ export default function Embarcacoes() {
 
     try {
       const result = await searchCollectionByField('embarcacoes', 'nome', term, 24, {
-        empresaId: user?.rootSuperadmin ? '' : user?.empresaId || '',
-        empresaNome: user?.empresaNome || '',
+        empresaId,
+        empresaNome,
       })
       setItems(result)
       setCursor(null)
@@ -246,8 +246,6 @@ export default function Embarcacoes() {
     }
 
     setLoadingList(true)
-    const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
-    const empresaNome = user?.empresaNome || ''
 
     try {
       const result = await listCollectionPage('embarcacoes', {
@@ -269,7 +267,7 @@ export default function Embarcacoes() {
 
   return (
     <Layout title="Cadastro de embarcacoes" subtitle="Cadastro da frota usada nas rotas hidroviarias." icon={<BoatIcon className="h-6 w-6" />}>
-      <PageShell title="Embarcacoes cadastradas" subtitle="Frota com multiplos horarios de partida para agilizar a comanda." icon={<BoatIcon className="h-6 w-6" />}>
+      <PageShell title="Embarcacoes cadastradas" subtitle="Defina a frota e as linhas em que cada embarcacao pode operar." icon={<BoatIcon className="h-6 w-6" />}>
         <div className="space-y-6">
           <div className="rounded-[1.7rem] border border-blue-100 bg-white p-4 shadow-[0_12px_30px_rgba(28,99,231,0.05)] md:p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -321,31 +319,25 @@ export default function Embarcacoes() {
               </label>
 
               <div className="md:col-span-2">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700">Horarios de partida</p>
-                    <p className="text-xs text-slate-500">Adicione quantos horarios quiser para a mesma embarcacao.</p>
-                  </div>
-                  <Button type="button" variant="secondary" onClick={adicionarHorario} className="min-h-10 px-3 py-2 text-xs">
-                    + Horario
-                  </Button>
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-slate-700">Linhas atendidas</p>
+                  <p className="text-xs text-slate-500">Selecione as linhas em que esta embarcacao pode ser usada.</p>
                 </div>
 
-                <div className="space-y-3">
-                  {form.horariosPartida.map((horario, index) => (
-                    <div key={`${editingId || 'novo'}-${index}`} className="flex items-center gap-3">
-                      <Input
-                        label={index === 0 ? 'Horario' : ''}
-                        type="time"
-                        value={horario}
-                        onChange={(event) => atualizarHorario(index, event.target.value)}
-                        className="flex-1"
-                      />
-                      <Button type="button" variant="ghost" onClick={() => removerHorario(index)} className="min-h-10 px-3 py-2 text-xs">
-                        Remover
-                      </Button>
-                    </div>
-                  ))}
+                <div className="rounded-[1rem] border border-blue-200 bg-white p-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {rotas.map((rota) => (
+                      <label key={rota.id} className="flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={form.rotasIds.includes(rota.id)}
+                          onChange={() => toggleRota(rota.id)}
+                        />
+                        {getLinhaLabel(rota)}
+                      </label>
+                    ))}
+                  </div>
+                  {!rotas.length ? <p className="text-sm text-slate-500">Cadastre linhas antes de vincular embarcacoes.</p> : null}
                 </div>
               </div>
 
@@ -389,9 +381,7 @@ export default function Embarcacoes() {
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {items.map((embarcacao) => {
-              const horarios = normalizarHorarios(
-                embarcacao.horariosPartida?.length ? embarcacao.horariosPartida : [embarcacao.horarioPartidaPadrao],
-              )
+              const linhas = Array.isArray(embarcacao.linhasNomes) ? embarcacao.linhasNomes.filter(Boolean) : []
 
               return (
                 <div
@@ -402,8 +392,8 @@ export default function Embarcacoes() {
                   <p className="text-sm text-slate-500">{embarcacao.empresaNome || 'Sem empresa'}</p>
                   <p className="text-sm text-slate-500">{embarcacao.identificacao || 'Sem identificacao'}</p>
                   <p className="text-sm text-slate-500">{embarcacao.capacidade || 'Sem capacidade'}</p>
-                  <p className="mt-3 text-xs font-bold uppercase tracking-[0.18em] text-[#1657d8]">Partidas</p>
-                  <p className="mt-1 text-sm text-slate-600">{horarios.length ? horarios.join(' • ') : 'Sem horarios cadastrados'}</p>
+                  <p className="mt-3 text-xs font-bold uppercase tracking-[0.18em] text-[#1657d8]">Linhas</p>
+                  <p className="mt-1 text-sm text-slate-600">{linhas.length ? linhas.join(' • ') : 'Sem linhas vinculadas'}</p>
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button type="button" variant="secondary" onClick={() => iniciarEdicao(embarcacao)} disabled={busy}>

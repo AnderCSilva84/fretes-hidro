@@ -20,7 +20,15 @@ function formatarDataHoraRegistro(valor) {
 
 export async function gerarEtiqueta(encomenda, qrCodeDataUrl) {
   const { jsPDF } = await import('jspdf')
-  const pdf = new jsPDF({ unit: 'mm', format: [100, 150] })
+  const itens = Array.isArray(encomenda.itens) && encomenda.itens.length
+    ? encomenda.itens
+    : [{
+        descricao: encomenda.descricao || encomenda.tipoMercadoria || 'Item nao informado',
+        observacao: '',
+        valorFrete: encomenda.valorFrete || 0,
+      }]
+  const alturaPdf = Math.max(170, 150 + (itens.length - 1) * 18 + (encomenda.empresaTelefoneSac ? 10 : 0))
+  const pdf = new jsPDF({ unit: 'mm', format: [100, alturaPdf] })
   const operador = encomenda.operadorNome || encomenda.operadorEmail || '-'
   const horarioRegistro = formatarDataHoraRegistro(encomenda.criadoEm)
   const embarcacaoNome = encomenda.embarcacaoNome || '-'
@@ -46,19 +54,45 @@ export async function gerarEtiqueta(encomenda, qrCodeDataUrl) {
   pdf.text(`Frete: ${encomenda.freteCobranca || '-'}`, 10, 91)
   pdf.text(`Operador: ${operador}`, 10, 98)
   pdf.text(`Registro: ${horarioRegistro}`, 10, 105)
-  pdf.text(`Valor frete: R$ ${Number(encomenda.valorFrete || 0).toFixed(2)}`, 10, 112)
-  pdf.text(`Valor merc.: R$ ${Number(encomenda.valorDeclarado || 0).toFixed(2)}`, 10, 119)
-  pdf.text(`Total: R$ ${Number(encomenda.valorTotal || 0).toFixed(2)}`, 10, 126)
+
+  let y = 112
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('Itens:', 10, y)
+  pdf.setFont('helvetica', 'normal')
+  y += 7
+
+  itens.forEach((item, index) => {
+    pdf.text(`${index + 1}. ${item.descricao || 'Item nao informado'}`, 10, y, { maxWidth: 76 })
+    y += 6
+
+    if (item.observacao) {
+      pdf.text(`Obs.: ${item.observacao}`, 10, y, { maxWidth: 76 })
+      y += 6
+    }
+
+    pdf.text(`Valor: R$ ${Number(item.valorFrete || 0).toFixed(2)}`, 10, y)
+    y += 8
+  })
+
+  pdf.text(`Valor merc.: R$ ${Number(encomenda.valorDeclarado || 0).toFixed(2)}`, 10, y)
+  y += 7
+  pdf.text(`Total: R$ ${Number(encomenda.valorTotal || 0).toFixed(2)}`, 10, y)
+  y += 7
+
+  if (encomenda.empresaTelefoneSac) {
+    pdf.text(`SAC: ${encomenda.empresaTelefoneSac}`, 10, y)
+    y += 7
+  }
 
   if (qrCodeDataUrl) {
-    pdf.addImage(qrCodeDataUrl, 'PNG', 58, 102, 28, 28)
+    pdf.addImage(qrCodeDataUrl, 'PNG', 58, Math.max(102, y - 26), 28, 28)
   }
 
   pdf.setFontSize(9)
-  pdf.text('Apresente este comprovante no balcao de atendimento.', 10, 137, {
+  pdf.text('Apresente este comprovante no balcao de atendimento.', 10, y + 5, {
     maxWidth: 44,
   })
-  pdf.text(`Rastreio: ${encomenda.rastreioUrl || '-'}`, 10, 144, {
+  pdf.text(`Rastreio: ${encomenda.rastreioUrl || '-'}`, 10, y + 12, {
     maxWidth: 76,
   })
 

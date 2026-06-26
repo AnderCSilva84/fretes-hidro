@@ -24,6 +24,20 @@ function formatarData(valor) {
   }).format(data)
 }
 
+function formatarDataPeriodo(valor) {
+  if (!valor) {
+    return ''
+  }
+
+  const [ano, mes, dia] = String(valor).split('-')
+
+  if (!ano || !mes || !dia) {
+    return valor
+  }
+
+  return `${dia}/${mes}/${ano}`
+}
+
 export async function gerarCaixaPdf({ itens, dataInicial, dataFinal, totalEntrada, valorFaturado }) {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -37,7 +51,7 @@ export async function gerarCaixaPdf({ itens, dataInicial, dataFinal, totalEntrad
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(11)
-  pdf.text(`Periodo: ${dataInicial || 'inicio'} ate ${dataFinal || 'hoje'}`, 14, 34)
+  pdf.text(`Periodo: ${formatarDataPeriodo(dataInicial) || 'inicio'} ate ${formatarDataPeriodo(dataFinal) || 'hoje'}`, 14, 34)
   pdf.text(`Entradas no periodo: R$ ${Number(totalEntrada || 0).toFixed(2)}`, 14, 42)
   pdf.text(`Valor faturado no periodo: R$ ${Number(valorFaturado || 0).toFixed(2)}`, 14, 50)
   pdf.text(`Quantidade de registros: ${itens.length}`, 14, 58)

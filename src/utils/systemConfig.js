@@ -1,4 +1,4 @@
-export const SYSTEM_NAME = 'Fretes Hidro'
+export const SYSTEM_NAME = 'HidroSis'
 export const ROOT_SUPERADMIN_EMAIL = 'adm@acs.com'
 export const DEFAULT_EMPRESA = {
   id: 'empresa-fretes-hidro',

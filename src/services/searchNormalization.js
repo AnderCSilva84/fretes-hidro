@@ -8,7 +8,7 @@ export function getIndexedFieldName(collectionName, fieldName) {
     return fieldName
   }
 
-  if (fieldName === 'nome' && ['clientes', 'usuarios', 'embarcacoes', 'terminais', 'empresas'].includes(collectionName)) {
+  if (fieldName === 'nome' && ['clientes', 'usuarios', 'embarcacoes', 'terminais', 'empresas', 'passageiros'].includes(collectionName)) {
     return 'nomeBusca'
   }
 
@@ -32,13 +32,29 @@ export function getIndexedFieldName(collectionName, fieldName) {
     return 'codigoBusca'
   }
 
+  if (collectionName === 'passagens' && fieldName === 'codigo') {
+    return 'codigoBusca'
+  }
+
+  if (collectionName === 'passagens' && fieldName === 'passageiroNome') {
+    return 'passageiroBusca'
+  }
+
+  if (collectionName === 'passagens' && fieldName === 'passageiroDocumento') {
+    return 'documentoBusca'
+  }
+
+  if (collectionName === 'viagens' && fieldName === 'codigoViagem') {
+    return 'codigoBusca'
+  }
+
   return fieldName
 }
 
 export function prepareCollectionPayload(collectionName, payload) {
   const preparedPayload = { ...payload }
 
-  if (['clientes', 'usuarios', 'embarcacoes', 'terminais', 'empresas'].includes(collectionName)) {
+  if (['clientes', 'usuarios', 'embarcacoes', 'terminais', 'empresas', 'passageiros'].includes(collectionName)) {
     preparedPayload.nomeBusca = normalizeSearchValue(payload.nome)
   }
 
@@ -49,12 +65,20 @@ export function prepareCollectionPayload(collectionName, payload) {
   if (collectionName === 'rotasValores') {
     const origem = String(payload.origem || '').trim()
     const destino = String(payload.destino || '').trim()
-    const terminalDestino = String(payload.terminalDestino || '').trim()
+    const terminaisDestino = Array.isArray(payload.terminaisDestino)
+      ? payload.terminaisDestino.map((item) => String(item || '').trim()).filter(Boolean)
+      : String(payload.terminalDestino || '')
+        .split('|')
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+    const terminalDestinoPrincipal = String(payload.terminalDestino || terminaisDestino[0] || '').trim()
 
     preparedPayload.origemBusca = normalizeSearchValue(origem)
     preparedPayload.destinoBusca = normalizeSearchValue(destino)
     preparedPayload.linhaBusca = normalizeSearchValue(`${origem} ${destino}`.trim())
-    preparedPayload.terminalDestinoBusca = normalizeSearchValue(terminalDestino)
+    preparedPayload.terminaisDestino = terminaisDestino
+    preparedPayload.terminalDestino = terminalDestinoPrincipal
+    preparedPayload.terminalDestinoBusca = normalizeSearchValue(terminaisDestino.join(' '))
   }
 
   if (collectionName === 'encomendas') {
@@ -62,6 +86,24 @@ export function prepareCollectionPayload(collectionName, payload) {
     preparedPayload.remetenteBusca = normalizeSearchValue(payload.remetenteNome)
     preparedPayload.destinatarioBusca = normalizeSearchValue(payload.destinatarioNome)
     preparedPayload.terminalDestinoBusca = normalizeSearchValue(payload.terminalDestino)
+  }
+
+  if (collectionName === 'viagens') {
+    preparedPayload.codigoBusca = normalizeSearchValue(payload.codigoViagem, { upper: true })
+    preparedPayload.origemBusca = normalizeSearchValue(payload.origem)
+    preparedPayload.destinoBusca = normalizeSearchValue(payload.destino)
+    preparedPayload.viagemBusca = normalizeSearchValue(`${payload.origem || ''} ${payload.destino || ''} ${payload.dataViagem || ''}`.trim())
+  }
+
+  if (collectionName === 'passageiros') {
+    preparedPayload.documentoBusca = normalizeSearchValue(payload.documento)
+  }
+
+  if (collectionName === 'passagens') {
+    preparedPayload.codigoBusca = normalizeSearchValue(payload.codigo, { upper: true })
+    preparedPayload.passageiroBusca = normalizeSearchValue(payload.passageiroNome)
+    preparedPayload.documentoBusca = normalizeSearchValue(payload.passageiroDocumento)
+    preparedPayload.viagemBusca = normalizeSearchValue(`${payload.origem || ''} ${payload.destino || ''} ${payload.dataViagem || ''}`.trim())
   }
 
   return preparedPayload

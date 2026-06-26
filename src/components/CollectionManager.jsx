@@ -33,6 +33,7 @@ export default function CollectionManager({
   orderDirection = 'desc',
   pageSize = 12,
   scopeByEmpresa = true,
+  canDeleteItem = null,
 }) {
   const { user } = useAuth()
   const [items, setItems] = useState([])
@@ -150,6 +151,12 @@ export default function CollectionManager({
   }
 
   async function handleDelete(item) {
+    const deleteAllowed = typeof canDeleteItem === 'function' ? canDeleteItem(item, user) : true
+
+    if (!deleteAllowed) {
+      return
+    }
+
     const confirmed = window.confirm(`Excluir ${item.nome || item.origem || item.codigo || 'registro'}?`)
 
     if (!confirmed) {
@@ -323,9 +330,11 @@ export default function CollectionManager({
                 <Button type="button" variant="secondary" onClick={() => startEdit(item)} disabled={busy}>
                   Editar
                 </Button>
-                <Button type="button" variant="danger" onClick={() => handleDelete(item)} disabled={busy}>
-                  Excluir
-                </Button>
+                {(typeof canDeleteItem === 'function' ? canDeleteItem(item, user) : true) ? (
+                  <Button type="button" variant="danger" onClick={() => handleDelete(item)} disabled={busy}>
+                    Excluir
+                  </Button>
+                ) : null}
               </div>
             </div>
           ))}

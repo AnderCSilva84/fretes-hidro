@@ -3,6 +3,14 @@ import { SYSTEM_NAME } from '../utils/systemConfig.js'
 
 export default function Header({ title, subtitle, icon, onMenuClick, onLogout, user }) {
   const empresaAtual = getEmpresaAtual(user)
+  const nomeExibido = user?.impersonationActive
+    ? user?.impersonatedBy?.nome || user?.impersonatedBy?.email || 'Superadmin'
+    : user?.displayName || user?.email || 'Operador'
+  const descricaoExibida = user?.impersonationActive
+    ? `Simulando ${user?.nome || user?.email || 'usuario'}`
+    : user?.rootSuperadmin
+      ? 'Superadmin principal'
+      : 'Acesso institucional'
 
   return (
     <header className="sticky top-0 z-20 overflow-hidden rounded-b-[2.2rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] text-white shadow-[0_18px_45px_rgba(10,45,97,0.32)]">
@@ -37,8 +45,8 @@ export default function Header({ title, subtitle, icon, onMenuClick, onLogout, u
 
           <div className="flex shrink-0 items-center gap-2">
             <div className="hidden rounded-2xl bg-white/10 px-3 py-2 text-right backdrop-blur sm:block">
-              <p className="text-sm font-semibold text-white">{user?.displayName || user?.email || 'Operador'}</p>
-              <p className="text-xs text-blue-100/80">{user?.rootSuperadmin ? 'Superadmin principal' : 'Acesso institucional'}</p>
+              <p className="text-sm font-semibold text-white">{nomeExibido}</p>
+              <p className="text-xs text-blue-100/80">{descricaoExibida}</p>
             </div>
 
             {onLogout ? (
@@ -54,8 +62,12 @@ export default function Header({ title, subtitle, icon, onMenuClick, onLogout, u
 }
 
 function getEmpresaAtual(user) {
+  if (user?.impersonationActive && user?.empresaNome) {
+    return user.empresaNome
+  }
+
   if (user?.rootSuperadmin) {
-    return 'Acesso central'
+    return SYSTEM_NAME
   }
 
   if (user?.empresaNome) {

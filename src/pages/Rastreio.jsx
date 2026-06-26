@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import { PackageIcon, SearchIcon } from '../components/AppIcons.jsx'
 import Card from '../components/Card.jsx'
+import SystemFooter from '../components/SystemFooter.jsx'
 import useAuth from '../context/useAuth.js'
 import { atualizarStatusEncomenda, getMovimentacoesPorCodigo, searchByCodigo } from '../services/firebase.js'
+import { getDefaultHomeRoute } from '../utils/accessControl.js'
 import { abrirComprovante, abrirReciboRetirada } from '../utils/encomendaMedia.js'
+import { getEncomendaStatusPresentation } from '../utils/encomendaStatus.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
 import { SYSTEM_NAME } from '../utils/systemConfig.js'
@@ -24,6 +27,7 @@ function formatarData(valor) {
 
 export default function Rastreio() {
   const { codigo } = useParams()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [encomenda, setEncomenda] = useState(null)
   const [movimentacoes, setMovimentacoes] = useState([])
@@ -36,6 +40,7 @@ export default function Rastreio() {
   const [historicoCarregado, setHistoricoCarregado] = useState(false)
   const [updatingDelivery, setUpdatingDelivery] = useState(false)
   const [erroAcao, setErroAcao] = useState('')
+  const statusAtual = getEncomendaStatusPresentation(encomenda)
 
   useEffect(() => {
     let ativo = true
@@ -179,21 +184,35 @@ export default function Rastreio() {
     }
   }
 
+  function handleVoltar() {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+
+    navigate(user ? getDefaultHomeRoute(user) : '/login')
+  }
+
   const podeDarBaixa = Boolean(user && encomenda && encomenda.status !== 'Entregue' && encomenda.status !== 'Cancelado')
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.16),transparent_32%),linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] px-4 py-8 lg:px-8">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.24),transparent_34%),linear-gradient(180deg,#eef5ff_0%,#dbeafe_100%)] px-4 py-8 lg:px-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <Card className="bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] text-white shadow-[0_18px_45px_rgba(10,45,97,0.32)]">
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/12">
-              <SearchIcon className="h-7 w-7" />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/12">
+                <SearchIcon className="h-7 w-7" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-blue-100">Rastreio publico</p>
+                <h1 className="mt-2 text-3xl font-bold tracking-[-0.04em] lg:text-4xl">{SYSTEM_NAME}</h1>
+                <p className="mt-2 text-blue-100/90">Consulta publica por codigo da encomenda.</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-blue-100">Rastreio publico</p>
-              <h1 className="mt-2 text-3xl font-bold tracking-[-0.04em] lg:text-4xl">{SYSTEM_NAME}</h1>
-              <p className="mt-2 text-blue-100/90">Consulta publica por codigo da encomenda.</p>
-            </div>
+            <Button type="button" variant="secondary" className="border-white/30 bg-white/10 text-white hover:bg-white/20" onClick={handleVoltar}>
+              Voltar
+            </Button>
           </div>
         </Card>
 
@@ -239,8 +258,15 @@ export default function Rastreio() {
                 </div>
                 <div className="rounded-2xl bg-blue-50 p-4">
                   <p className="text-xs text-slate-500">Status atual</p>
-                  <p className="mt-1 text-lg font-bold text-[#0a2d61]">{encomenda.status}</p>
+                  <div className="mt-2">
+                    <span className={`inline-flex rounded-full px-3 py-1 text-sm font-bold ${statusAtual.className}`}>
+                      {statusAtual.label}
+                    </span>
+                  </div>
                   <p className="mt-2 text-sm text-slate-600">Criado em {formatarData(encomenda.criadoEm)}</p>
+                  {String(encomenda.status || '').trim() === 'Chegou ao terminal' ? (
+                    <p className="mt-2 text-sm text-slate-600">A encomenda esta em Aguardando retirada: ja chegou ao balcao/terminal de destino e espera o cliente.</p>
+                  ) : null}
                   {erroCarregamento ? <p className="mt-3 text-sm font-medium text-amber-700">{erroCarregamento}</p> : null}
                   {encomenda.entregueEm ? (
                     <div className="mt-3 rounded-2xl bg-white/80 px-3 py-3 text-sm text-slate-700">
@@ -347,7 +373,9 @@ export default function Rastreio() {
                     movimentacoes.map((item) => (
                       <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="font-semibold text-slate-900">{item.status}</p>
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${getEncomendaStatusPresentation(item).className}`}>
+                            {getEncomendaStatusPresentation(item).label}
+                          </span>
                           <p className="text-xs text-slate-500">{formatarData(item.criadoEm)}</p>
                         </div>
                         <p className="mt-2 text-sm text-slate-600">{item.descricao}</p>
@@ -367,6 +395,7 @@ export default function Rastreio() {
             <p className="text-slate-500">{erroCarregamento || 'Codigo nao encontrado.'}</p>
           </Card>
         )}
+        <SystemFooter className="px-2 pb-2 pt-4" />
       </div>
     </div>
   )

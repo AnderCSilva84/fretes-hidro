@@ -20,6 +20,7 @@ import {
   serverTimestamp,
   updateDoc,
   where,
+  runTransaction,
 } from 'firebase/firestore'
 import {
   createUserWithEmailAndPassword,
@@ -32,8 +33,12 @@ import {
   updateProfile,
 } from 'firebase/auth'
 import { obterRemetenteNome } from '../utils/remetente.js'
+import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
+import { enrichUserModuleAccess, normalizeModuleAccess } from '../utils/accessControl.js'
 import { DEFAULT_EMPRESA, ROOT_SUPERADMIN_EMAIL, SYSTEM_NAME, isRootSuperadminEmail, normalizeEmail } from '../utils/systemConfig.js'
+import { isTarifaAntecipada } from '../utils/tarifaUtils.js'
 import { getIndexedFieldName, normalizeSearchValue, prepareCollectionPayload } from './searchNormalization.js'
+import { calcularHorarioChegada, gerarCodigoPassagem, normalizarDocumento } from '../utils/passagemUtils.js'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -165,6 +170,11 @@ const seedStore = {
       atualizadoEm: new Date().toISOString(),
     },
   ],
+  viagens: [],
+  programacoesViagem: [],
+  passageiros: [],
+  passagens: [],
+  checkins: [],
   caixa: [],
   resumos: {
     admin: {
@@ -172,6 +182,8 @@ const seedStore = {
       totalEncomendas: 1,
       totalClientes: 2,
       totalTerminais: 2,
+      totalPassagens: 0,
+      totalViagens: 0,
     },
     caixa: {
       id: 'caixa',
@@ -198,6 +210,24 @@ function preencherEmpresaPadrao(item = {}) {
   }
 }
 
+function normalizarTextoComparacao(valor = '') {
+  return normalizeSearchValue(String(valor || '').trim())
+}
+
+function usuarioExigeEmpresa(perfil = '') {
+  return String(perfil || '').trim().toLowerCase() !== 'superadmin'
+}
+
+function validarEmpresaObrigatoria({ perfil = '', empresaId = '', empresaNome = '' }) {
+  if (!usuarioExigeEmpresa(perfil)) {
+    return
+  }
+
+  if (!String(empresaId || '').trim() || !String(empresaNome || '').trim()) {
+    throw new Error('Todo usuario nao-superadmin precisa estar vinculado a uma empresa.')
+  }
+}
+
 function inferTerminalOrigem(origem) {
   const normalized = String(origem || '').trim().toLowerCase()
 
@@ -216,6 +246,19 @@ function inferTerminalOrigem(origem) {
   return ''
 }
 
+function normalizeTerminaisDestino(rawTerminais, terminalDestinoFallback = '') {
+  const base = Array.isArray(rawTerminais)
+    ? rawTerminais
+    : String(rawTerminais || terminalDestinoFallback || '')
+      .split('|')
+
+  return [...new Set(
+    base
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  )]
+}
+
 function migrateStore(store) {
   const nextStore = structuredClone(store || {})
 
@@ -227,6 +270,7 @@ function migrateStore(store) {
 
   nextStore.usuarios = (nextStore.usuarios || []).map((item) => ({
     ...item,
+    ...enrichUserModuleAccess(item),
     email: normalizeEmail(item.email),
     nomeBusca: item.nomeBusca || normalizeSearchValue(item.nome),
     emailBusca: item.emailBusca || normalizeSearchValue(item.email),
@@ -243,6 +287,8 @@ function migrateStore(store) {
       perfil: 'superadmin',
       senha: '123456',
       ativo: true,
+      acessoFretes: true,
+      acessoPassagens: true,
       empresaId: '',
       empresaNome: SYSTEM_NAME,
     })
@@ -263,13 +309,20 @@ function migrateStore(store) {
     nomeBusca: item.nomeBusca || normalizeSearchValue(item.nome),
   }))
 
-  nextStore.rotasValores = (nextStore.rotasValores || []).map((item) => ({
-    ...preencherEmpresaPadrao(item),
-    terminalOrigem: item.terminalOrigem || inferTerminalOrigem(item.origem),
-    origemBusca: item.origemBusca || normalizeSearchValue(item.origem),
-    destinoBusca: item.destinoBusca || normalizeSearchValue(item.destino),
-    linhaBusca: item.linhaBusca || normalizeSearchValue(`${item.origem || ''} ${item.destino || ''}`.trim()),
-  }))
+  nextStore.rotasValores = (nextStore.rotasValores || []).map((item) => {
+    const terminaisDestino = normalizeTerminaisDestino(item.terminaisDestino, item.terminalDestino)
+
+    return {
+      ...preencherEmpresaPadrao(item),
+      terminalOrigem: item.terminalOrigem || inferTerminalOrigem(item.origem),
+      terminalDestino: item.terminalDestino || terminaisDestino[0] || '',
+      terminaisDestino,
+      percentualGratuidade: Number(item.percentualGratuidade || 0),
+      origemBusca: item.origemBusca || normalizeSearchValue(item.origem),
+      destinoBusca: item.destinoBusca || normalizeSearchValue(item.destino),
+      linhaBusca: item.linhaBusca || normalizeSearchValue(`${item.origem || ''} ${item.destino || ''}`.trim()),
+    }
+  })
 
   nextStore.encomendas = (nextStore.encomendas || []).map((item) => ({
     ...preencherEmpresaPadrao(item),
@@ -277,6 +330,36 @@ function migrateStore(store) {
     remetenteBusca: item.remetenteBusca || normalizeSearchValue(item.remetenteNome),
     destinatarioBusca: item.destinatarioBusca || normalizeSearchValue(item.destinatarioNome),
   }))
+
+  nextStore.viagens = (nextStore.viagens || []).map((item) => ({
+    ...preencherEmpresaPadrao(item),
+    codigoBusca: item.codigoBusca || normalizeSearchValue(item.codigoViagem, { upper: true }),
+    origemBusca: item.origemBusca || normalizeSearchValue(item.origem),
+    destinoBusca: item.destinoBusca || normalizeSearchValue(item.destino),
+    viagemBusca: item.viagemBusca || normalizeSearchValue(`${item.origem || ''} ${item.destino || ''} ${item.dataViagem || ''}`.trim()),
+  }))
+
+  nextStore.programacoesViagem = (nextStore.programacoesViagem || []).map((item) => ({
+    ...preencherEmpresaPadrao(item),
+    embarcacaoBusca: item.embarcacaoBusca || normalizeSearchValue(item.embarcacaoNome),
+    rotaBusca: item.rotaBusca || normalizeSearchValue(`${item.origem || ''} ${item.destino || ''}`.trim()),
+  }))
+
+  nextStore.passageiros = (nextStore.passageiros || []).map((item) => ({
+    ...preencherEmpresaPadrao(item),
+    nomeBusca: item.nomeBusca || normalizeSearchValue(item.nome),
+    documentoBusca: item.documentoBusca || normalizeSearchValue(item.documento),
+  }))
+
+  nextStore.passagens = (nextStore.passagens || []).map((item) => ({
+    ...preencherEmpresaPadrao(item),
+    codigoBusca: item.codigoBusca || normalizeSearchValue(item.codigo, { upper: true }),
+    passageiroBusca: item.passageiroBusca || normalizeSearchValue(item.passageiroNome),
+    documentoBusca: item.documentoBusca || normalizeSearchValue(item.passageiroDocumento),
+    viagemBusca: item.viagemBusca || normalizeSearchValue(`${item.origem || ''} ${item.destino || ''} ${item.dataViagem || ''}`.trim()),
+  }))
+
+  nextStore.checkins = (nextStore.checkins || []).map((item) => preencherEmpresaPadrao(item))
 
   nextStore.movimentacoes = (nextStore.movimentacoes || []).map((item) => preencherEmpresaPadrao(item))
 
@@ -340,7 +423,7 @@ function getLocalUser() {
     const rootAccess = isRootSuperadminEmail(parsed?.email)
 
     return {
-      ...parsed,
+      ...enrichUserModuleAccess(parsed),
       email: normalizeEmail(parsed?.email),
       perfil: rootAccess ? 'superadmin' : parsed?.perfil || 'admin',
       empresaId: rootAccess ? '' : parsed?.empresaId || '',
@@ -357,7 +440,7 @@ function setLocalUser(user) {
     if (user) {
       const rootAccess = isRootSuperadminEmail(user?.email)
       window.localStorage.setItem(authKey, JSON.stringify({
-        ...user,
+        ...enrichUserModuleAccess(user),
         email: normalizeEmail(user?.email),
         perfil: rootAccess ? 'superadmin' : user?.perfil || 'admin',
         empresaId: rootAccess ? '' : user?.empresaId || '',
@@ -381,7 +464,7 @@ function isAdminSummaryCollection(collectionName) {
 }
 
 function shouldRestrictByEmpresa(collectionName) {
-  return ['clientes', 'terminais', 'embarcacoes', 'rotasValores', 'encomendas', 'movimentacoes', 'caixa'].includes(collectionName)
+  return ['clientes', 'terminais', 'embarcacoes', 'rotasValores', 'encomendas', 'movimentacoes', 'caixa', 'viagens', 'programacoesViagem', 'passageiros', 'passagens', 'checkins'].includes(collectionName)
 }
 
 function filterItemsByEmpresa(items, empresaId = '') {
@@ -390,6 +473,97 @@ function filterItemsByEmpresa(items, empresaId = '') {
   }
 
   return items.filter((item) => String(item?.empresaId || '') === String(empresaId))
+}
+
+function getDateFromUnknownValue(value) {
+  if (!value) {
+    return null
+  }
+
+  if (typeof value?.toDate === 'function') {
+    const dateValue = value.toDate()
+    return Number.isNaN(dateValue?.getTime?.()) ? null : dateValue
+  }
+
+  const dateValue = new Date(value)
+  return Number.isNaN(dateValue.getTime()) ? null : dateValue
+}
+
+function getComparableValue(value) {
+  const dateValue = getDateFromUnknownValue(value)
+
+  if (dateValue) {
+    return dateValue.getTime()
+  }
+
+  if (typeof value === 'number') {
+    return value
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 1 : 0
+  }
+
+  return String(value ?? '').toLowerCase()
+}
+
+function compareValues(left, right, direction = 'desc') {
+  const normalizedDirection = direction === 'asc' ? 'asc' : 'desc'
+  const leftValue = getComparableValue(left)
+  const rightValue = getComparableValue(right)
+
+  if (leftValue === rightValue) {
+    return 0
+  }
+
+  if (normalizedDirection === 'asc') {
+    return leftValue > rightValue ? 1 : -1
+  }
+
+  return leftValue > rightValue ? -1 : 1
+}
+
+function sortItemsByField(items, orderField = 'criadoEm', orderDirection = 'desc') {
+  return [...items].sort((a, b) => {
+    const primary = compareValues(a?.[orderField], b?.[orderField], orderDirection)
+
+    if (primary !== 0) {
+      return primary
+    }
+
+    return compareValues(a?.id, b?.id, 'asc')
+  })
+}
+
+function getCursorItemId(cursor) {
+  if (!cursor) {
+    return ''
+  }
+
+  if (typeof cursor.id === 'string' && cursor.id.trim()) {
+    return cursor.id
+  }
+
+  return ''
+}
+
+function cursorIsFirestoreSnapshot(cursor) {
+  return Boolean(cursor && typeof cursor.data === 'function' && typeof cursor.id === 'string')
+}
+
+function paginateSortedItems(items, cursor, maxResults = 12) {
+  const cursorId = getCursorItemId(cursor)
+  const startIndex = cursorId
+    ? Math.max(0, items.findIndex((item) => item.id === cursorId) + 1)
+    : 0
+  const pagedItems = items.slice(startIndex, startIndex + maxResults)
+  const lastItem = pagedItems.at(-1) || null
+
+  return {
+    items: pagedItems,
+    cursor: lastItem,
+    hasMore: startIndex + pagedItems.length < items.length,
+  }
 }
 
 function enrichPayloadWithEmpresa(payload = {}) {
@@ -472,7 +646,8 @@ async function buildSessionUser(authUser) {
   const normalizedEmail = normalizeEmail(authUser.email || profile?.email)
   const rootAccess = isRootSuperadminEmail(normalizedEmail)
 
-  return {
+  const sessionUser = {
+    ...normalizeModuleAccess({ ...profile, rootSuperadmin: rootAccess }),
     uid: authUser.uid,
     email: normalizedEmail,
     displayName: authUser.displayName || profile?.nome || '',
@@ -482,6 +657,19 @@ async function buildSessionUser(authUser) {
     empresaId: rootAccess ? '' : profile?.empresaId || '',
     empresaNome: rootAccess ? SYSTEM_NAME : profile?.empresaNome || '',
     rootSuperadmin: rootAccess,
+  }
+
+  validarAcessoUsuarioComEmpresa(sessionUser)
+  return sessionUser
+}
+
+function validarAcessoUsuarioComEmpresa(profile) {
+  if (!profile) {
+    return
+  }
+
+  if (usuarioExigeEmpresa(profile.perfil) && !String(profile.empresaId || '').trim()) {
+    throw new Error('Este usuario precisa estar vinculado a uma empresa antes de acessar o sistema.')
   }
 }
 
@@ -551,6 +739,7 @@ export async function entrar(email, senha) {
   }
 
   const user = {
+    ...normalizeModuleAccess({ ...account, rootSuperadmin: isRootSuperadminEmail(account.email) }),
     uid: account.uid || account.id,
     displayName: account.nome,
     email: normalizeEmail(account.email),
@@ -561,6 +750,7 @@ export async function entrar(email, senha) {
     empresaNome: isRootSuperadminEmail(account.email) ? SYSTEM_NAME : account.empresaNome || '',
     rootSuperadmin: isRootSuperadminEmail(account.email),
   }
+  validarAcessoUsuarioComEmpresa(user)
   setLocalUser(user)
   await registrarLogUso({
     acao: 'login',
@@ -627,55 +817,70 @@ export async function listCollectionPage(
   } = {},
 ) {
   if (isConfigured && db) {
-    if (shouldRestrictByEmpresa(collectionName) && empresaId) {
-      const snapshot = await getDocs(query(collection(db, collectionName), where('empresaId', '==', empresaId)))
-      const sortedItems = [...mapDocs(snapshot)].sort((a, b) => {
-        const left = String(a?.[orderField] || '')
-        const right = String(b?.[orderField] || '')
-        return orderDirection === 'asc' ? left.localeCompare(right) : right.localeCompare(left)
-      })
-      const startIndex = Number.isFinite(Number(cursor)) ? Number(cursor) : 0
-      const items = sortedItems.slice(startIndex, startIndex + maxResults)
-      const nextCursor = startIndex + items.length
+    const usarRestricaoEmpresa = shouldRestrictByEmpresa(collectionName) && empresaId
+    const cursorCompativel = !cursor || cursorIsFirestoreSnapshot(cursor)
 
-      return {
-        items,
-        cursor: nextCursor < sortedItems.length ? nextCursor : null,
-        hasMore: nextCursor < sortedItems.length,
+    if (cursorCompativel) {
+      const constraints = []
+
+      if (usarRestricaoEmpresa) {
+        constraints.push(where('empresaId', '==', empresaId))
+      }
+
+      constraints.push(orderBy(orderField, orderDirection))
+
+      if (cursor) {
+        constraints.push(startAfter(cursor))
+      }
+
+      constraints.push(limit(maxResults))
+
+      try {
+        const snapshot = await getDocs(query(collection(db, collectionName), ...constraints))
+
+        return {
+          items: filterItemsByEmpresa(mapDocs(snapshot), shouldRestrictByEmpresa(collectionName) ? empresaId : '', shouldRestrictByEmpresa(collectionName) ? empresaNome : ''),
+          cursor: snapshot.docs.at(-1) || null,
+          hasMore: snapshot.docs.length === maxResults,
+        }
+      } catch (error) {
+        reportRuntimeError('firebase.listCollectionPage.indexFallback', error, {
+          collectionName,
+          orderField,
+          orderDirection,
+          empresaId,
+          empresaNome,
+        })
       }
     }
 
-    const constraints = [orderBy(orderField, orderDirection)]
+    const baseItems = await listCollectionOnce(collectionName, {
+      empresaId: shouldRestrictByEmpresa(collectionName) ? empresaId : '',
+      empresaNome: shouldRestrictByEmpresa(collectionName) ? empresaNome : '',
+    })
 
-    if (cursor) {
-      constraints.push(startAfter(cursor))
-    }
+    return paginateSortedItems(sortItemsByField(baseItems, orderField, orderDirection), cursor, maxResults)
+  }
 
-    constraints.push(limit(maxResults))
+  const sortedItems = sortItemsByField(
+    filterItemsByEmpresa(readStore()[collectionName] || [], shouldRestrictByEmpresa(collectionName) ? empresaId : '', shouldRestrictByEmpresa(collectionName) ? empresaNome : ''),
+    orderField,
+    orderDirection,
+  )
 
-    const snapshot = await getDocs(query(collection(db, collectionName), ...constraints))
+  if (Number.isFinite(Number(cursor))) {
+    const startIndex = Number(cursor)
+    const items = sortedItems.slice(startIndex, startIndex + maxResults)
+    const nextCursor = startIndex + items.length
 
     return {
-    items: filterItemsByEmpresa(mapDocs(snapshot), shouldRestrictByEmpresa(collectionName) ? empresaId : '', shouldRestrictByEmpresa(collectionName) ? empresaNome : ''),
-      cursor: snapshot.docs.at(-1) || null,
-      hasMore: snapshot.docs.length === maxResults,
+      items,
+      cursor: nextCursor < sortedItems.length ? nextCursor : null,
+      hasMore: nextCursor < sortedItems.length,
     }
   }
 
-  const sortedItems = [...filterItemsByEmpresa(readStore()[collectionName] || [], shouldRestrictByEmpresa(collectionName) ? empresaId : '', shouldRestrictByEmpresa(collectionName) ? empresaNome : '')].sort((a, b) => {
-    const left = String(a?.[orderField] || '')
-    const right = String(b?.[orderField] || '')
-    return orderDirection === 'asc' ? left.localeCompare(right) : right.localeCompare(left)
-  })
-  const startIndex = Number.isFinite(Number(cursor)) ? Number(cursor) : 0
-  const items = sortedItems.slice(startIndex, startIndex + maxResults)
-  const nextCursor = startIndex + items.length
-
-  return {
-    items,
-    cursor: nextCursor < sortedItems.length ? nextCursor : null,
-    hasMore: nextCursor < sortedItems.length,
-  }
+  return paginateSortedItems(sortedItems, cursor, maxResults)
 }
 
 export async function searchCollectionByField(collectionName, fieldName, searchTerm, maxResults = 6, { empresaId = '', empresaNome = '' } = {}) {
@@ -690,25 +895,31 @@ export async function searchCollectionByField(collectionName, fieldName, searchT
     const searchKey = indexedField === 'codigoBusca'
       ? normalizeSearchValue(normalizedTerm, { upper: true })
       : normalizeSearchValue(normalizedTerm)
+    const constraints = []
+
     if (shouldRestrictByEmpresa(collectionName) && empresaId) {
-      const snapshot = await getDocs(query(collection(db, collectionName), where('empresaId', '==', empresaId)))
-      return mapDocs(snapshot)
-        .filter((item) => String(item[indexedField] || item[fieldName] || '').toLowerCase().includes(searchKey.toLowerCase()))
-        .sort((a, b) => String(a[indexedField] || '').localeCompare(String(b[indexedField] || '')))
-        .slice(0, maxResults)
+      constraints.push(where('empresaId', '==', empresaId))
     }
 
-    const snapshot = await getDocs(
-      query(
-        collection(db, collectionName),
-        orderBy(indexedField),
-        startAt(searchKey),
-        endAt(`${searchKey}\uf8ff`),
-        limit(maxResults),
-      ),
-    )
+    constraints.push(orderBy(indexedField))
+    constraints.push(startAt(searchKey))
+    constraints.push(endAt(`${searchKey}\uf8ff`))
+    constraints.push(limit(maxResults))
 
-    return mapDocs(snapshot)
+    try {
+      const snapshot = await getDocs(query(collection(db, collectionName), ...constraints))
+      return filterItemsByEmpresa(mapDocs(snapshot), shouldRestrictByEmpresa(collectionName) ? empresaId : '', shouldRestrictByEmpresa(collectionName) ? empresaNome : '')
+    } catch {
+      if (shouldRestrictByEmpresa(collectionName) && empresaId) {
+        const snapshot = await getDocs(query(collection(db, collectionName), where('empresaId', '==', empresaId)))
+        return mapDocs(snapshot)
+          .filter((item) => String(item[indexedField] || item[fieldName] || '').toLowerCase().includes(searchKey.toLowerCase()))
+          .sort((a, b) => String(a[indexedField] || '').localeCompare(String(b[indexedField] || '')))
+          .slice(0, maxResults)
+      }
+
+      throw new Error('Nao foi possivel executar a busca indexada.')
+    }
   }
 
   const store = readStore()
@@ -747,6 +958,16 @@ export async function addCollectionDocument(collectionName, payload) {
     if (collectionName === 'terminais') {
       resumoAdmin.totalTerminais += 1
     }
+  }
+
+  if (collectionName === 'passagens') {
+    const resumoAdmin = garantirResumoAdminLocal(store)
+    resumoAdmin.totalPassagens = Number(resumoAdmin.totalPassagens || 0) + 1
+  }
+
+  if (collectionName === 'viagens') {
+    const resumoAdmin = garantirResumoAdminLocal(store)
+    resumoAdmin.totalViagens = Number(resumoAdmin.totalViagens || 0) + 1
   }
 
   writeStore(store)
@@ -823,7 +1044,175 @@ export async function deleteCollectionDocument(collectionName, documentId) {
     }
   }
 
+  if (collectionName === 'passagens') {
+    const resumoAdmin = garantirResumoAdminLocal(store)
+    resumoAdmin.totalPassagens = Math.max(0, Number(resumoAdmin.totalPassagens || 0) - 1)
+  }
+
+  if (collectionName === 'viagens') {
+    const resumoAdmin = garantirResumoAdminLocal(store)
+    resumoAdmin.totalViagens = Math.max(0, Number(resumoAdmin.totalViagens || 0) - 1)
+  }
+
   writeStore(store)
+  return true
+}
+
+export async function excluirUsuarioSistema(documentId, actorUser = null) {
+  if (!isRootSuperadminEmail(actorUser?.email)) {
+    throw new Error('Somente o superadmin principal pode excluir usuarios.')
+  }
+
+  if (!documentId) {
+    throw new Error('Usuario nao informado.')
+  }
+
+  if (String(actorUser?.uid || actorUser?.id || '') === String(documentId)) {
+    throw new Error('Nao e permitido excluir o usuario da sessao atual.')
+  }
+
+  if (isConfigured && db) {
+    const usuarioRef = doc(db, 'usuarios', documentId)
+    const usuarioSnapshot = await getDoc(usuarioRef)
+
+    if (!usuarioSnapshot.exists()) {
+      throw new Error('Usuario nao encontrado.')
+    }
+
+    const usuario = { id: usuarioSnapshot.id, ...usuarioSnapshot.data() }
+
+    if (isRootSuperadminEmail(usuario.email)) {
+      throw new Error('O superadmin principal nao pode ser excluido.')
+    }
+
+    await deleteDoc(usuarioRef)
+    await registrarLogUso({
+      acao: 'usuario_excluido',
+      detalhes: `Usuario ${usuario.nome || usuario.email || documentId} removido do sistema.`,
+      user: actorUser,
+      empresaId: usuario.empresaId || '',
+      empresaNome: usuario.empresaNome || '',
+    })
+    return true
+  }
+
+  const store = readStore()
+  const usuario = (store.usuarios || []).find((item) => item.id === documentId || item.uid === documentId)
+
+  if (!usuario) {
+    throw new Error('Usuario nao encontrado.')
+  }
+
+  if (isRootSuperadminEmail(usuario.email)) {
+    throw new Error('O superadmin principal nao pode ser excluido.')
+  }
+
+  store.usuarios = (store.usuarios || []).filter((item) => item.id !== documentId && item.uid !== documentId)
+  writeStore(store)
+  await registrarLogUso({
+    acao: 'usuario_excluido',
+    detalhes: `Usuario ${usuario.nome || usuario.email || documentId} removido do sistema.`,
+    user: actorUser,
+    empresaId: usuario.empresaId || '',
+    empresaNome: usuario.empresaNome || '',
+  })
+  return true
+}
+
+export async function deleteHistoricoCaixaPassagem(viagemId, actorUser = null) {
+  if (!isRootSuperadminEmail(actorUser?.email)) {
+    throw new Error('Somente o superadmin principal pode excluir historicos de caixa.')
+  }
+
+  if (!viagemId) {
+    throw new Error('Historico de caixa nao informado.')
+  }
+
+  if (isConfigured && db) {
+    const viagemRef = doc(db, 'viagens', viagemId)
+    const viagemSnapshot = await getDoc(viagemRef)
+
+    if (!viagemSnapshot.exists()) {
+      throw new Error('Historico de caixa nao encontrado.')
+    }
+
+    const viagem = { id: viagemSnapshot.id, ...viagemSnapshot.data() }
+    const [passagensSnapshot, caixaSnapshot, checkinsSnapshot] = await Promise.all([
+      getDocs(query(collection(db, 'passagens'), where('viagemId', '==', viagemId))),
+      getDocs(query(collection(db, 'caixa'), where('viagemId', '==', viagemId))),
+      getDocs(query(collection(db, 'checkins'), where('viagemId', '==', viagemId))),
+    ])
+
+    const passagens = mapDocs(passagensSnapshot)
+    const caixaItems = mapDocs(caixaSnapshot)
+    const checkins = mapDocs(checkinsSnapshot)
+
+    for (const item of passagens) {
+      await deleteDoc(doc(db, 'passagens', item.id))
+    }
+
+    for (const item of caixaItems) {
+      await deleteDoc(doc(db, 'caixa', item.id))
+    }
+
+    for (const item of checkins) {
+      await deleteDoc(doc(db, 'checkins', item.id))
+    }
+
+    await deleteDoc(viagemRef)
+
+    const deltaEntrada = caixaItems.reduce((total, item) => total - (item.tipo === 'entrada' ? Number(item.valor || 0) : 0), 0)
+    const deltaRegistros = caixaItems.length ? -caixaItems.length : 0
+
+    if (deltaEntrada !== 0 || deltaRegistros !== 0) {
+      await ajustarResumoCaixa({
+        deltaEntrada,
+        deltaRegistros,
+      })
+    }
+
+    await registrarLogUso({
+      acao: 'historico_caixa_excluido',
+      detalhes: `Historico de caixa da viagem ${viagem.origem || '-'} - ${viagem.destino || '-'} em ${viagem.dataViagem || '-'} removido.`,
+      user: actorUser,
+      empresaId: viagem.empresaId || '',
+      empresaNome: viagem.empresaNome || '',
+    })
+    return true
+  }
+
+  const store = readStore()
+  const viagem = (store.viagens || []).find((item) => item.id === viagemId)
+
+  if (!viagem) {
+    throw new Error('Historico de caixa nao encontrado.')
+  }
+
+  const passagens = (store.passagens || []).filter((item) => item.viagemId === viagemId)
+  const caixaItems = (store.caixa || []).filter((item) => item.viagemId === viagemId)
+
+  store.passagens = (store.passagens || []).filter((item) => item.viagemId !== viagemId)
+  store.caixa = (store.caixa || []).filter((item) => item.viagemId !== viagemId)
+  store.checkins = (store.checkins || []).filter((item) => item.viagemId !== viagemId)
+  store.viagens = (store.viagens || []).filter((item) => item.id !== viagemId)
+
+  const resumoAdmin = garantirResumoAdminLocal(store)
+  resumoAdmin.totalPassagens = Math.max(0, Number(resumoAdmin.totalPassagens || 0) - passagens.length)
+  resumoAdmin.totalViagens = Math.max(0, Number(resumoAdmin.totalViagens || 0) - 1)
+
+  const resumoCaixa = garantirResumoCaixaLocal(store)
+  const totalEntradaRemovido = caixaItems.reduce((total, item) => total + (item.tipo === 'entrada' ? Number(item.valor || 0) : 0), 0)
+  resumoCaixa.totalEntrada = Number(resumoCaixa.totalEntrada || 0) - totalEntradaRemovido
+  resumoCaixa.totalRegistros = Math.max(0, Number(resumoCaixa.totalRegistros || 0) - caixaItems.length)
+
+  writeStore(store)
+  await registrarLogUso({
+    acao: 'historico_caixa_excluido',
+    detalhes: `Historico de caixa da viagem ${viagem.origem || '-'} - ${viagem.destino || '-'} em ${viagem.dataViagem || '-'} removido.`,
+    user: actorUser,
+    empresaId: viagem.empresaId || '',
+    empresaNome: viagem.empresaNome || '',
+  })
   return true
 }
 
@@ -968,7 +1357,7 @@ export async function listCaixaEntries({ dataInicial = '', dataFinal = '', maxRe
       const snapshot = await getDocs(query(collection(db, 'caixa'), where('empresaId', '==', empresaId)))
       return mapDocs(snapshot)
         .filter((item) => {
-          const data = item?.criadoEm ? new Date(item.criadoEm) : null
+          const data = getDateFromUnknownValue(item?.criadoEm)
 
           if (!data || Number.isNaN(data.getTime())) {
             return false
@@ -1006,7 +1395,7 @@ export async function listCaixaEntries({ dataInicial = '', dataFinal = '', maxRe
 
   return [...filterItemsByEmpresa(readStore().caixa || [], empresaId, empresaNome)]
     .filter((item) => {
-      const data = item?.criadoEm ? new Date(item.criadoEm) : null
+      const data = getDateFromUnknownValue(item?.criadoEm)
 
       if (!data || Number.isNaN(data.getTime())) {
         return false
@@ -1058,7 +1447,20 @@ export async function gerarCodigoEncomenda() {
 export async function criarEncomenda(dados) {
   const codigo = dados.codigo || (await gerarCodigoEncomenda())
   const agora = new Date().toISOString()
-  const valorTotal = Number(dados.valorFrete || 0) + Number(dados.taxa || 0)
+  const itens = Array.isArray(dados.itens)
+    ? dados.itens
+      .map((item, index) => ({
+        id: item.id || `item-${index + 1}`,
+        descricao: String(item.descricao || '').trim(),
+        observacao: String(item.observacao || '').trim(),
+        valorFrete: Number(item.valorFrete || 0),
+      }))
+      .filter((item) => item.descricao || item.observacao || item.valorFrete > 0)
+    : []
+  const valorFreteCalculado = itens.length
+    ? itens.reduce((total, item) => total + Number(item.valorFrete || 0), 0)
+    : Number(dados.valorFrete || 0)
+  const valorTotal = valorFreteCalculado + Number(dados.taxa || 0)
   const encomendaBase = {
     codigo,
     codigoBusca: String(codigo || '').trim().toUpperCase(),
@@ -1089,9 +1491,10 @@ export async function criarEncomenda(dados) {
     valorDeclarado: Number(dados.valorDeclarado || 0),
     tipoMercadoria: dados.tipoMercadoria || '',
     descricao: dados.descricao || '',
+    itens,
     quantidade: Number(dados.quantidade || 0),
     peso: Number(dados.peso || 0),
-    valorFrete: Number(dados.valorFrete || 0),
+    valorFrete: valorFreteCalculado,
     taxa: Number(dados.taxa || 0),
     valorTotal,
     formaPagamento: dados.formaPagamento || 'Não informado',
@@ -1099,6 +1502,7 @@ export async function criarEncomenda(dados) {
     rastreioUrl: dados.rastreioUrl || '',
     empresaId: dados.empresaId || '',
     empresaNome: dados.empresaNome || '',
+    empresaTelefoneSac: dados.empresaTelefoneSac || '',
     status: 'Postado',
     criadoEm: agora,
     atualizadoEm: agora,
@@ -1179,12 +1583,32 @@ export async function criarEncomenda(dados) {
 export async function getCollectionCount(collectionName, { empresaId = '', empresaNome = '' } = {}) {
   if (isConfigured && db) {
     if (shouldRestrictByEmpresa(collectionName) && empresaId) {
-      const snapshot = await getDocs(query(collection(db, collectionName), where('empresaId', '==', empresaId)))
-      return mapDocs(snapshot).length
+      try {
+        const snapshot = await getCountFromServer(query(collection(db, collectionName), where('empresaId', '==', empresaId)))
+        return snapshot.data().count || 0
+      } catch (error) {
+        reportRuntimeError('firebase.getCollectionCount.fallbackByEmpresa', error, {
+          collectionName,
+          empresaId,
+          empresaNome,
+        })
+
+        const snapshot = await getDocs(query(collection(db, collectionName), where('empresaId', '==', empresaId)))
+        return filterItemsByEmpresa(mapDocs(snapshot), empresaId, empresaNome).length
+      }
     }
 
-    const snapshot = await getCountFromServer(collection(db, collectionName))
-    return snapshot.data().count || 0
+    try {
+      const snapshot = await getCountFromServer(collection(db, collectionName))
+      return snapshot.data().count || 0
+    } catch (error) {
+      reportRuntimeError('firebase.getCollectionCount.fallbackGlobal', error, {
+        collectionName,
+      })
+
+      const snapshot = await getDocs(collection(db, collectionName))
+      return mapDocs(snapshot).length
+    }
   }
 
   return filterItemsByEmpresa(readStore()[collectionName] || [], shouldRestrictByEmpresa(collectionName) ? empresaId : '', shouldRestrictByEmpresa(collectionName) ? empresaNome : '').length
@@ -1193,10 +1617,28 @@ export async function getCollectionCount(collectionName, { empresaId = '', empre
 export async function listRecentDocuments(collectionName, fieldName = 'criadoEm', maxResults = 5, { empresaId = '', empresaNome = '' } = {}) {
   if (isConfigured && db) {
     if (shouldRestrictByEmpresa(collectionName) && empresaId) {
-      const snapshot = await getDocs(query(collection(db, collectionName), where('empresaId', '==', empresaId)))
-      return mapDocs(snapshot)
-        .sort((a, b) => String(b[fieldName] || '').localeCompare(String(a[fieldName] || '')))
-        .slice(0, maxResults)
+      try {
+        const snapshot = await getDocs(
+          query(collection(db, collectionName), where('empresaId', '==', empresaId), orderBy(fieldName, 'desc'), limit(maxResults)),
+        )
+        return mapDocs(snapshot)
+      } catch (error) {
+        reportRuntimeError('firebase.listRecentDocuments.indexFallback', error, {
+          collectionName,
+          fieldName,
+          maxResults,
+          empresaId,
+          empresaNome,
+        })
+
+        const snapshot = await getDocs(
+          query(collection(db, collectionName), where('empresaId', '==', empresaId)),
+        )
+
+        return mapDocs(snapshot)
+          .sort((a, b) => String(b[fieldName] || '').localeCompare(String(a[fieldName] || '')))
+          .slice(0, maxResults)
+      }
     }
 
     const snapshot = await getDocs(
@@ -1254,6 +1696,8 @@ function garantirResumoAdminLocal(store) {
       totalEncomendas: (store.encomendas || []).length,
       totalClientes: (store.clientes || []).length,
       totalTerminais: (store.terminais || []).length,
+      totalPassagens: (store.passagens || []).length,
+      totalViagens: (store.viagens || []).length,
     }
   }
 
@@ -1283,16 +1727,20 @@ async function ajustarResumoCaixa({ deltaEntrada = 0, deltaRegistros = 0 }) {
 
 export async function getAdminResumo({ empresaId = '', empresaNome = '' } = {}) {
   if (isConfigured && db) {
-    const [encomendasCount, clientesCount, terminaisCount] = await Promise.all([
+    const [encomendasCount, clientesCount, terminaisCount, passagensCount, viagensCount] = await Promise.all([
       getCollectionCount('encomendas', { empresaId, empresaNome }),
       getCollectionCount('clientes', { empresaId, empresaNome }),
       getCollectionCount('terminais', { empresaId, empresaNome }),
+      getCollectionCount('passagens', { empresaId, empresaNome }),
+      getCollectionCount('viagens', { empresaId, empresaNome }),
     ])
 
     return {
       totalEncomendas: encomendasCount,
       totalClientes: clientesCount,
       totalTerminais: terminaisCount,
+      totalPassagens: passagensCount,
+      totalViagens: viagensCount,
     }
   }
 
@@ -1302,6 +1750,8 @@ export async function getAdminResumo({ empresaId = '', empresaNome = '' } = {}) 
       totalEncomendas: filterItemsByEmpresa(store.encomendas || [], empresaId).length,
       totalClientes: filterItemsByEmpresa(store.clientes || [], empresaId).length,
       totalTerminais: filterItemsByEmpresa(store.terminais || [], empresaId).length,
+      totalPassagens: filterItemsByEmpresa(store.passagens || [], empresaId).length,
+      totalViagens: filterItemsByEmpresa(store.viagens || [], empresaId).length,
     }
   }
 
@@ -1311,6 +1761,8 @@ export async function getAdminResumo({ empresaId = '', empresaNome = '' } = {}) 
     totalEncomendas: Number(resumo.totalEncomendas || 0),
     totalClientes: Number(resumo.totalClientes || 0),
     totalTerminais: Number(resumo.totalTerminais || 0),
+    totalPassagens: Number(resumo.totalPassagens || 0),
+    totalViagens: Number(resumo.totalViagens || 0),
   }
 }
 
@@ -1377,7 +1829,29 @@ export async function getCaixaResumo({ empresaId = '', empresaNome = '' } = {}) 
   }
 }
 
-export async function criarUsuario({ nome, email, senha, perfil = 'operador', ativo = true, empresaId = '', empresaNome = '', actorUser = null }) {
+export async function getCaixaResumoHoje({ empresaId = '', empresaNome = '' } = {}) {
+  const agora = new Date()
+  const ano = agora.getFullYear()
+  const mes = String(agora.getMonth() + 1).padStart(2, '0')
+  const dia = String(agora.getDate()).padStart(2, '0')
+  const hoje = `${ano}-${mes}-${dia}`
+  const itens = await listCaixaEntries({
+    dataInicial: hoje,
+    dataFinal: hoje,
+    maxResults: 2000,
+    empresaId,
+    empresaNome,
+  })
+
+  return {
+    totalEntrada: itens
+      .filter((item) => item.tipo === 'entrada')
+      .reduce((sum, item) => sum + Number(item.valor || 0), 0),
+    totalRegistros: itens.length,
+  }
+}
+
+export async function criarUsuario({ nome, email, senha, perfil = 'operador', ativo = true, empresaId = '', empresaNome = '', acessoFretes = true, acessoPassagens = true, actorUser = null }) {
   const normalizedEmail = normalizeEmail(email)
   const normalizedNome = String(nome || '').trim()
   const normalizedSenha = String(senha || '')
@@ -1395,6 +1869,18 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
   if (normalizedPerfil === 'superadmin' && !isRootSuperadminEmail(normalizedEmail)) {
     throw new Error('O acesso superadmin principal e reservado ao e-mail adm@acs.com.')
   }
+
+  const normalizedModules = normalizeModuleAccess({ acessoFretes, acessoPassagens })
+
+  if (!normalizedModules.acessoFretes && !normalizedModules.acessoPassagens) {
+    throw new Error('Selecione pelo menos um ambiente de acesso.')
+  }
+
+  validarEmpresaObrigatoria({
+    perfil: normalizedPerfil,
+    empresaId,
+    empresaNome,
+  })
 
   if (isConfigured && auth && db) {
     const existingProfile = await getUserProfile('', normalizedEmail)
@@ -1418,6 +1904,8 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
         emailBusca: normalizeSearchValue(normalizedEmail),
         perfil: normalizedPerfil,
         ativo: Boolean(ativo),
+        acessoFretes: normalizedModules.acessoFretes,
+        acessoPassagens: normalizedModules.acessoPassagens,
         empresaId: normalizedPerfil === 'operador' ? empresaId || '' : '',
         empresaNome: normalizedPerfil === 'operador' ? empresaNome || '' : SYSTEM_NAME,
         criadoEm: new Date().toISOString(),
@@ -1468,6 +1956,8 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
     senha: normalizedSenha,
     perfil: normalizedPerfil,
     ativo: Boolean(ativo),
+    acessoFretes: normalizedModules.acessoFretes,
+    acessoPassagens: normalizedModules.acessoPassagens,
     empresaId: normalizedPerfil === 'operador' ? empresaId || '' : '',
     empresaNome: normalizedPerfil === 'operador' ? empresaNome || '' : SYSTEM_NAME,
     criadoEm: new Date().toISOString(),
@@ -1501,11 +1991,25 @@ export async function atualizarUsuario(documentId, updates, actorUser = null) {
     throw new Error('Somente o superadmin principal pode manter usuarios como admin.')
   }
 
+  const normalizedModules = normalizeModuleAccess(updates)
+
+  if (!normalizedModules.acessoFretes && !normalizedModules.acessoPassagens) {
+    throw new Error('Selecione pelo menos um ambiente de acesso.')
+  }
+
+  validarEmpresaObrigatoria({
+    perfil: normalizedPerfil,
+    empresaId: normalizedEmpresaId,
+    empresaNome: normalizedEmpresaNome,
+  })
+
   const payload = {
     nome: normalizedNome,
     nomeBusca: normalizeSearchValue(normalizedNome),
     perfil: normalizedPerfil,
     ativo: Boolean(updates?.ativo),
+    acessoFretes: normalizedModules.acessoFretes,
+    acessoPassagens: normalizedModules.acessoPassagens,
     empresaId: normalizedEmpresaId,
     empresaNome: normalizedEmpresaNome,
   }
@@ -1565,6 +2069,203 @@ export async function atualizarUsuario(documentId, updates, actorUser = null) {
   return { ...currentUser, ...payload, id: documentId }
 }
 
+const COLECOES_COM_EMPRESA = [
+  'clientes',
+  'terminais',
+  'embarcacoes',
+  'rotasValores',
+  'encomendas',
+  'movimentacoes',
+  'caixa',
+  'viagens',
+  'programacoesViagem',
+  'passageiros',
+  'passagens',
+  'checkins',
+]
+
+function montarPayloadEmpresa(empresa) {
+  return {
+    empresaId: empresa.id,
+    empresaNome: empresa.nome || '',
+  }
+}
+
+function usuarioCorrespondeMigracao(item, nomeOrigem, emailOrigem = '') {
+  const nomeAtual = normalizarTextoComparacao(item?.nome || '')
+  const emailAtual = normalizarTextoComparacao(item?.email || '')
+  const nomeEsperado = normalizarTextoComparacao(nomeOrigem)
+  const emailEsperado = normalizarTextoComparacao(emailOrigem)
+
+  return Boolean(
+    (nomeEsperado && nomeAtual.includes(nomeEsperado)) ||
+    (emailEsperado && emailAtual === emailEsperado),
+  )
+}
+
+function registroPertenceEmpresaOrigemOuSemEmpresa(item, empresasOrigem = []) {
+  const empresaIdAtual = String(item?.empresaId || '').trim()
+  const empresaNomeAtual = normalizarTextoComparacao(item?.empresaNome || '')
+
+  if (!empresaIdAtual) {
+    return true
+  }
+
+  return empresasOrigem.some((empresaOrigem) =>
+    empresaIdAtual === String(empresaOrigem?.id || '').trim() ||
+    empresaNomeAtual === normalizarTextoComparacao(empresaOrigem?.nome || ''),
+  )
+}
+
+export async function mesclarEmpresaOrigemEmDestino({
+  usuarioOrigemNome = 'Leda',
+  usuarioOrigemEmail = '',
+  empresasOrigemNomes = [DEFAULT_EMPRESA.nome, 'Amazonat', 'Luz da Aurora III'],
+  empresaDestinoNome = 'Luz da Aurora',
+  actorUser = null,
+} = {}) {
+  if (!isRootSuperadminEmail(actorUser?.email)) {
+    throw new Error('Somente o superadmin principal pode executar esta migracao.')
+  }
+
+  if (isConfigured && db) {
+    const empresasSnapshot = await getDocs(collection(db, 'empresas'))
+    const empresas = mapDocs(empresasSnapshot)
+    const empresasOrigem = empresasOrigemNomes.map((nomeOrigem, index) =>
+      empresas.find((item) => normalizarTextoComparacao(item.nome) === normalizarTextoComparacao(nomeOrigem))
+        || {
+          id: index === 0 ? DEFAULT_EMPRESA.id : '',
+          nome: nomeOrigem || DEFAULT_EMPRESA.nome,
+        },
+    )
+    const empresaDestino = empresas.find((item) => normalizarTextoComparacao(item.nome) === normalizarTextoComparacao(empresaDestinoNome))
+
+    if (!empresaDestino) {
+      throw new Error(`Empresa de destino nao encontrada: ${empresaDestinoNome}.`)
+    }
+
+    const empresaPayload = montarPayloadEmpresa(empresaDestino)
+    const usuariosSnapshot = await getDocs(collection(db, 'usuarios'))
+    const usuarios = mapDocs(usuariosSnapshot)
+    const usuariosAtualizados = []
+
+    for (const usuario of usuarios) {
+      if (isRootSuperadminEmail(usuario.email)) {
+        continue
+      }
+
+      if (!usuarioCorrespondeMigracao(usuario, usuarioOrigemNome, usuarioOrigemEmail)) {
+        continue
+      }
+
+      if (String(usuario.empresaId || '').trim() === empresaPayload.empresaId && String(usuario.empresaNome || '').trim() === empresaPayload.empresaNome) {
+        continue
+      }
+
+      await updateDoc(doc(db, 'usuarios', usuario.id), empresaPayload)
+      usuariosAtualizados.push(usuario.id)
+    }
+
+    const contagemPorColecao = {}
+
+    for (const nomeColecao of COLECOES_COM_EMPRESA) {
+      const snapshot = await getDocs(collection(db, nomeColecao))
+      const items = mapDocs(snapshot)
+      const elegiveis = items.filter((item) => registroPertenceEmpresaOrigemOuSemEmpresa(item, empresasOrigem))
+
+      contagemPorColecao[nomeColecao] = elegiveis.length
+
+      for (const item of elegiveis) {
+        await updateDoc(doc(db, nomeColecao, item.id), empresaPayload)
+      }
+    }
+
+    await registrarLogUso({
+      acao: 'mesclagem_empresa_legada',
+      detalhes: `Mesclagem de registros sem empresa ou das empresas ${empresasOrigem.map((item) => item.nome).join(', ')} para ${empresaPayload.empresaNome}. Usuario base: ${usuarioOrigemNome}.`,
+      user: actorUser,
+      empresaId: empresaPayload.empresaId,
+      empresaNome: empresaPayload.empresaNome,
+    })
+
+    return {
+      empresaDestino: empresaPayload,
+      usuariosAtualizados: usuariosAtualizados.length,
+      contagemPorColecao,
+    }
+  }
+
+  const store = readStore()
+  const empresasOrigem = empresasOrigemNomes.map((nomeOrigem, index) =>
+    (store.empresas || []).find((item) => normalizarTextoComparacao(item.nome) === normalizarTextoComparacao(nomeOrigem))
+      || {
+        id: index === 0 ? DEFAULT_EMPRESA.id : '',
+        nome: nomeOrigem || DEFAULT_EMPRESA.nome,
+      },
+  )
+  const empresaDestino = (store.empresas || []).find((item) => normalizarTextoComparacao(item.nome) === normalizarTextoComparacao(empresaDestinoNome))
+
+  if (!empresaDestino) {
+    throw new Error(`Empresa de destino nao encontrada: ${empresaDestinoNome}.`)
+  }
+
+  const empresaPayload = montarPayloadEmpresa(empresaDestino)
+  let usuariosAtualizados = 0
+
+  store.usuarios = (store.usuarios || []).map((usuario) => {
+    if (isRootSuperadminEmail(usuario.email)) {
+      return usuario
+    }
+
+    if (!usuarioCorrespondeMigracao(usuario, usuarioOrigemNome, usuarioOrigemEmail)) {
+      return usuario
+    }
+
+    usuariosAtualizados += 1
+    return {
+      ...usuario,
+      ...empresaPayload,
+    }
+  })
+
+  const contagemPorColecao = {}
+
+  for (const nomeColecao of COLECOES_COM_EMPRESA) {
+    let atualizados = 0
+    store[nomeColecao] = (store[nomeColecao] || []).map((item) => {
+      if (!registroPertenceEmpresaOrigemOuSemEmpresa(item, empresasOrigem)) {
+        return item
+      }
+
+      atualizados += 1
+      return {
+        ...item,
+        ...empresaPayload,
+      }
+    })
+    contagemPorColecao[nomeColecao] = atualizados
+  }
+
+  writeStore(store)
+  await registrarLogUso({
+    acao: 'mesclagem_empresa_legada',
+    detalhes: `Mesclagem de registros sem empresa ou das empresas ${empresasOrigem.map((item) => item.nome).join(', ')} para ${empresaPayload.empresaNome}. Usuario base: ${usuarioOrigemNome}.`,
+    user: actorUser,
+    empresaId: empresaPayload.empresaId,
+    empresaNome: empresaPayload.empresaNome,
+  })
+
+  return {
+    empresaDestino: empresaPayload,
+    usuariosAtualizados,
+    contagemPorColecao,
+  }
+}
+
+export async function migrarDadosLegadosSemEmpresa(options = {}) {
+  return mesclarEmpresaOrigemEmDestino(options)
+}
+
 export async function atualizarStatusEncomenda(encomenda, novoStatus, descricao = '', extraUpdates = {}) {
   const statusAtualizado = String(novoStatus || '').trim() || 'Postado'
   const observacao = descricao.trim()
@@ -1615,4 +2316,1536 @@ export async function atualizarStatusEncomenda(encomenda, novoStatus, descricao 
   ]
   writeStore(store)
   return true
+}
+
+async function obterUltimoCodigoPassagemPorPrefixo(prefixo) {
+  if (isConfigured && db) {
+    const snapshot = await getDocs(
+      query(
+        collection(db, 'passagens'),
+        where('codigoBusca', '>=', prefixo),
+        where('codigoBusca', '<', `${prefixo}\uf8ff`),
+        orderBy('codigoBusca', 'desc'),
+        limit(1),
+      ),
+    )
+    return snapshot.docs[0]?.data()?.codigo || ''
+  }
+
+  const store = readStore()
+  return [...(store.passagens || [])]
+    .map((item) => item.codigo)
+    .filter((codigo) => String(codigo || '').startsWith(prefixo))
+    .sort()
+    .at(-1) || ''
+}
+
+function gerarCodigoViagem() {
+  return `VIA-${Date.now()}`
+}
+
+function montarUrlEmbarquePassagem(codigo) {
+  if (typeof window === 'undefined') {
+    return `/scanner-embarque?codigo=${encodeURIComponent(codigo)}`
+  }
+
+  return `${window.location.origin}/scanner-embarque?codigo=${encodeURIComponent(codigo)}`
+}
+
+function calcularChegadaPrevistaViagem(dataViagem, horarioSaida, duracaoMinutos) {
+  return calcularHorarioChegada(dataViagem, horarioSaida, duracaoMinutos)
+}
+
+function normalizarListaHorarios(horarios) {
+  const source = Array.isArray(horarios) ? horarios : String(horarios || '').split(',')
+
+  return [...new Set(
+    source
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  )].sort((a, b) => a.localeCompare(b))
+}
+
+function sanitizeViagemIdPart(value, fallback = 'manual') {
+  const normalized = String(value || '').replace(/[^a-zA-Z0-9_-]/g, '')
+  return normalized || fallback
+}
+
+export function gerarViagemOperacionalId({ programacaoViagemId = '', rotaId = '', embarcacaoId = '', dataViagem = '', horarioSaida = '' } = {}) {
+  const baseId = programacaoViagemId || [rotaId, embarcacaoId].filter(Boolean).join('-') || embarcacaoId || rotaId || 'manual'
+  return `via-${sanitizeViagemIdPart(baseId)}-${String(dataViagem || '').replace(/[^0-9]/g, '')}-${String(horarioSaida || '').replace(/[^0-9]/g, '')}`
+}
+
+function gerarViagemProgramadaId(programacaoViagemId, dataViagem, horarioSaida, rotaId = '', embarcacaoId = '') {
+  return gerarViagemOperacionalId({ programacaoViagemId, rotaId, embarcacaoId, dataViagem, horarioSaida })
+}
+
+function montarPayloadViagemProgramada(dados) {
+  const capacidadeTotal = Number(dados.capacidadeTotal || 0)
+  const vagasVendidas = Number(dados.vagasVendidas || 0)
+  const horarioSaida = dados.horarioSaida || ''
+  const dataViagem = dados.dataViagem || ''
+
+  return prepareCollectionPayload('viagens', {
+    codigoViagem: dados.codigoViagem || gerarCodigoViagem(),
+    origemOperacao: dados.origemOperacao || 'passagens',
+    programacaoViagemId: dados.programacaoViagemId || '',
+    empresaId: dados.empresaId || '',
+    empresaNome: dados.empresaNome || '',
+    rotaId: dados.rotaId || '',
+    origem: dados.origem || '',
+    destino: dados.destino || '',
+    terminalOrigem: dados.terminalOrigem || '',
+    terminalDestino: dados.terminalDestino || '',
+    embarcacaoId: dados.embarcacaoId || '',
+    embarcacaoNome: dados.embarcacaoNome || '',
+    dataViagem,
+    horarioSaida,
+    horarioChegadaPrevisto: dados.horarioChegadaPrevisto || calcularChegadaPrevistaViagem(dataViagem, horarioSaida, dados.duracaoMinutos),
+    capacidadeTotal,
+    vagasVendidas,
+    vagasDisponiveis: Math.max(0, capacidadeTotal - vagasVendidas),
+    valorPadrao: Number(dados.valorPadrao || 0),
+    status: dados.status || 'Aberta',
+    operadorNome: dados.operadorNome || '',
+    operadorEmail: dados.operadorEmail || '',
+    criadoEm: dados.criadoEm || new Date().toISOString(),
+    atualizadoEm: dados.atualizadoEm || new Date().toISOString(),
+  })
+}
+
+function isRegistroViagemPassagem(item) {
+  const origemOperacao = String(item?.origemOperacao || 'passagens').trim().toLowerCase()
+  return origemOperacao === 'passagens'
+}
+
+function isCaixaPassagemAberto(item) {
+  return isRegistroViagemPassagem(item) && Boolean(item?.caixaAbertoEm) && !item?.caixaFechadoEm && ['Aberta', 'Embarcando'].includes(item?.status)
+}
+
+function isHistoricoCaixaPassagemFechado(item) {
+  return isRegistroViagemPassagem(item) && Boolean(item?.caixaAbertoEm) && Boolean(item?.caixaFechadoEm) && item?.status === 'Fechada'
+}
+
+export async function criarViagem(dados) {
+  const payload = montarPayloadViagemProgramada(dados)
+
+  if (isConfigured && db) {
+    const viagemId = dados.id || ''
+
+    if (viagemId) {
+      await setDoc(doc(db, 'viagens', viagemId), {
+        ...payload,
+        criadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp(),
+      })
+      return { id: viagemId, ...payload }
+    }
+
+    const viagemRef = await addDoc(collection(db, 'viagens'), {
+      ...payload,
+      criadoEm: serverTimestamp(),
+      atualizadoEm: serverTimestamp(),
+    })
+    return { id: viagemRef.id, ...payload }
+  }
+
+  const store = readStore()
+  const viagem = {
+    id: dados.id || `viagem-${Date.now()}`,
+    ...payload,
+  }
+  store.viagens = [
+    ...(store.viagens || []).filter((item) => item.id !== viagem.id),
+    viagem,
+  ]
+  writeStore(store)
+  return viagem
+}
+
+export async function listarViagens({ empresaId = '', empresaNome = '', status = '', dataViagem = '' } = {}) {
+  const items = await listCollectionOnce('viagens', { empresaId, empresaNome })
+
+  return items
+    .filter((item) => (status ? item.status === status : true))
+    .filter((item) => (dataViagem ? item.dataViagem === dataViagem : true))
+    .sort((a, b) => String(b.dataViagem || '').localeCompare(String(a.dataViagem || '')) || String(a.horarioSaida || '').localeCompare(String(b.horarioSaida || '')))
+}
+
+export async function criarProgramacaoViagem(dados) {
+  const agora = new Date().toISOString()
+  const horariosSaida = normalizarListaHorarios(dados.horariosSaida)
+
+  if (!horariosSaida.length) {
+    throw new Error('Informe pelo menos um horario de saida.')
+  }
+
+  const payload = prepareCollectionPayload('programacoesViagem', {
+    empresaId: dados.empresaId || '',
+    empresaNome: dados.empresaNome || '',
+    rotaId: dados.rotaId || '',
+    origem: dados.origem || '',
+    destino: dados.destino || '',
+    terminalOrigem: dados.terminalOrigem || '',
+    terminalDestino: dados.terminalDestino || '',
+    embarcacaoId: dados.embarcacaoId || '',
+    embarcacaoNome: dados.embarcacaoNome || '',
+    horariosSaida,
+    capacidadeTotal: Number(dados.capacidadeTotal || 0),
+    valorPadrao: Number(dados.valorPadrao || 0),
+    duracaoMinutos: Number(dados.duracaoMinutos || 0),
+    ativo: dados.ativo !== false,
+    operadorNome: dados.operadorNome || '',
+    operadorEmail: dados.operadorEmail || '',
+    criadoEm: agora,
+    atualizadoEm: agora,
+  })
+
+  if (isConfigured && db) {
+    const programacaoRef = await addDoc(collection(db, 'programacoesViagem'), {
+      ...payload,
+      criadoEm: serverTimestamp(),
+      atualizadoEm: serverTimestamp(),
+    })
+    return { id: programacaoRef.id, ...payload }
+  }
+
+  const store = readStore()
+  const programacao = {
+    id: `programacao-${Date.now()}`,
+    ...payload,
+  }
+  store.programacoesViagem = [...(store.programacoesViagem || []), programacao]
+  writeStore(store)
+  return programacao
+}
+
+export async function listarProgramacoesViagemPage({
+  empresaId = '',
+  empresaNome = '',
+  maxResults = 12,
+  cursor = null,
+} = {}) {
+  return listCollectionPage('programacoesViagem', {
+    orderField: 'criadoEm',
+    orderDirection: 'desc',
+    maxResults,
+    cursor,
+    empresaId,
+    empresaNome,
+  })
+}
+
+export async function listarProgramacoesViagemAtivas({ empresaId = '', empresaNome = '' } = {}) {
+  if (isConfigured && db) {
+    const constraints = [where('ativo', '==', true)]
+
+    if (empresaId) {
+      constraints.push(where('empresaId', '==', empresaId))
+    }
+
+    const snapshot = await getDocs(query(collection(db, 'programacoesViagem'), ...constraints, limit(60)))
+    return filterItemsByEmpresa(mapDocs(snapshot), empresaId, empresaNome)
+      .sort((a, b) => String(a.origem || '').localeCompare(String(b.origem || '')) || String(a.embarcacaoNome || '').localeCompare(String(b.embarcacaoNome || '')))
+  }
+
+  return filterItemsByEmpresa(readStore().programacoesViagem || [], empresaId, empresaNome)
+    .filter((item) => item.ativo !== false)
+    .sort((a, b) => String(a.origem || '').localeCompare(String(b.origem || '')) || String(a.embarcacaoNome || '').localeCompare(String(b.embarcacaoNome || '')))
+}
+
+export async function listarOpcoesViagemPassagem({ dataViagem = '', empresaId = '', empresaNome = '' } = {}) {
+  if (!dataViagem) {
+    return []
+  }
+
+  const [programacoes, viagensExistentes] = await Promise.all([
+    listarProgramacoesViagemAtivas({ empresaId, empresaNome }),
+    listarViagens({ empresaId, empresaNome, dataViagem }),
+  ])
+
+  const viagensMap = new Map()
+  for (const viagem of viagensExistentes) {
+    if (['Cancelada', 'Finalizada'].includes(viagem.status)) {
+      continue
+    }
+
+    const key = gerarViagemProgramadaId(
+      viagem.programacaoViagemId || viagem.rotaId || viagem.embarcacaoId || viagem.id,
+      viagem.dataViagem,
+      viagem.horarioSaida,
+      viagem.rotaId,
+      viagem.embarcacaoId,
+    )
+    viagensMap.set(key, viagem)
+  }
+
+  return programacoes
+    .flatMap((programacao) =>
+      normalizarListaHorarios(programacao.horariosSaida).map((horarioSaida) => {
+        const viagemId = gerarViagemProgramadaId(programacao.id, dataViagem, horarioSaida, programacao.rotaId, programacao.embarcacaoId)
+        const existente = viagensMap.get(viagemId) || null
+
+        return existente || {
+          id: viagemId,
+          programacaoViagemId: programacao.id,
+          rotaId: programacao.rotaId || '',
+          origem: programacao.origem || '',
+          destino: programacao.destino || '',
+          terminalOrigem: programacao.terminalOrigem || '',
+          terminalDestino: programacao.terminalDestino || '',
+          embarcacaoId: programacao.embarcacaoId || '',
+          embarcacaoNome: programacao.embarcacaoNome || '',
+          dataViagem,
+          horarioSaida,
+          horarioChegadaPrevisto: calcularChegadaPrevistaViagem(dataViagem, horarioSaida, programacao.duracaoMinutos),
+          capacidadeTotal: Number(programacao.capacidadeTotal || 0),
+          vagasVendidas: 0,
+          vagasDisponiveis: Number(programacao.capacidadeTotal || 0),
+          valorPadrao: Number(programacao.valorPadrao || 0),
+          status: 'Fechada',
+          duracaoMinutos: Number(programacao.duracaoMinutos || 0),
+          origemProgramacao: true,
+        }
+      }),
+    )
+    .sort((a, b) => String(a.horarioSaida || '').localeCompare(String(b.horarioSaida || '')) || String(a.origem || '').localeCompare(String(b.origem || '')))
+}
+
+function passagemImpactaCapacidade(dados) {
+  if (typeof dados?.impactaCapacidade === 'boolean') {
+    return dados.impactaCapacidade
+  }
+
+  return !isTarifaAntecipada(dados?.tarifaTipo)
+}
+
+export async function buscarViagensAbertas({ empresaId = '', empresaNome = '' } = {}) {
+  if (isConfigured && db) {
+    const constraints = [where('status', 'in', ['Aberta', 'Embarcando'])]
+
+    if (empresaId) {
+      constraints.push(where('empresaId', '==', empresaId))
+    }
+
+    const snapshot = await getDocs(query(collection(db, 'viagens'), ...constraints, limit(40)))
+    return filterItemsByEmpresa(mapDocs(snapshot), empresaId, empresaNome)
+      .sort((a, b) => String(a.dataViagem || '').localeCompare(String(b.dataViagem || '')) || String(a.horarioSaida || '').localeCompare(String(b.horarioSaida || '')))
+  }
+
+  const items = await listCollectionOnce('viagens', { empresaId, empresaNome })
+  return items
+    .filter((item) => ['Aberta', 'Embarcando'].includes(item.status))
+    .sort((a, b) => String(a.dataViagem || '').localeCompare(String(b.dataViagem || '')) || String(a.horarioSaida || '').localeCompare(String(b.horarioSaida || '')))
+}
+
+export async function listarViagensPage({
+  empresaId = '',
+  empresaNome = '',
+  status = '',
+  dataViagem = '',
+  searchTerm = '',
+  maxResults = 12,
+  cursor = null,
+} = {}) {
+  const term = String(searchTerm || '').trim().toLowerCase()
+
+  if (!term) {
+    if (isConfigured && db) {
+      const constraints = []
+
+      if (empresaId) {
+        constraints.push(where('empresaId', '==', empresaId))
+      }
+
+      if (status) {
+        constraints.push(where('status', '==', status))
+      }
+
+      if (dataViagem) {
+        constraints.push(where('dataViagem', '==', dataViagem))
+      }
+
+      constraints.push(orderBy('dataViagem', 'desc'))
+
+      if (cursor) {
+        constraints.push(startAfter(cursor))
+      }
+
+      constraints.push(limit(maxResults))
+
+      const snapshot = await getDocs(query(collection(db, 'viagens'), ...constraints))
+
+      return {
+        items: filterItemsByEmpresa(mapDocs(snapshot), empresaId, empresaNome),
+        cursor: snapshot.docs.at(-1) || null,
+        hasMore: snapshot.docs.length === maxResults,
+      }
+    }
+
+    return listCollectionPage('viagens', {
+      orderField: 'dataViagem',
+      orderDirection: 'desc',
+      maxResults,
+      cursor,
+      empresaId,
+      empresaNome,
+    })
+  }
+
+  if (isConfigured && db) {
+    const constraints = []
+
+    if (empresaId) {
+      constraints.push(where('empresaId', '==', empresaId))
+    }
+
+    if (status) {
+      constraints.push(where('status', '==', status))
+    }
+
+    if (dataViagem) {
+      constraints.push(where('dataViagem', '==', dataViagem))
+    }
+
+    const snapshot = await getDocs(query(collection(db, 'viagens'), ...constraints))
+    const sortedItems = filterItemsByEmpresa(mapDocs(snapshot), empresaId, empresaNome)
+      .filter((item) =>
+        !term
+          ? true
+          : String(item.origem || '').toLowerCase().includes(term) ||
+            String(item.destino || '').toLowerCase().includes(term) ||
+            String(item.embarcacaoNome || '').toLowerCase().includes(term) ||
+            String(item.codigoViagem || '').toLowerCase().includes(term),
+      )
+      .sort((a, b) => String(b.dataViagem || '').localeCompare(String(a.dataViagem || '')) || String(a.horarioSaida || '').localeCompare(String(b.horarioSaida || '')))
+    const startIndex = Number.isFinite(Number(cursor)) ? Number(cursor) : 0
+    const items = sortedItems.slice(startIndex, startIndex + maxResults)
+    const nextCursor = startIndex + items.length
+
+    return {
+      items,
+      cursor: nextCursor < sortedItems.length ? nextCursor : null,
+      hasMore: nextCursor < sortedItems.length,
+    }
+  }
+
+  const sortedItems = filterItemsByEmpresa(readStore().viagens || [], empresaId, empresaNome)
+    .filter((item) => (status ? item.status === status : true))
+    .filter((item) => (dataViagem ? item.dataViagem === dataViagem : true))
+    .filter((item) =>
+      !term
+        ? true
+        : String(item.origem || '').toLowerCase().includes(term) ||
+          String(item.destino || '').toLowerCase().includes(term) ||
+          String(item.embarcacaoNome || '').toLowerCase().includes(term) ||
+          String(item.codigoViagem || '').toLowerCase().includes(term),
+    )
+    .sort((a, b) => String(b.dataViagem || '').localeCompare(String(a.dataViagem || '')) || String(a.horarioSaida || '').localeCompare(String(b.horarioSaida || '')))
+  const startIndex = Number.isFinite(Number(cursor)) ? Number(cursor) : 0
+  const items = sortedItems.slice(startIndex, startIndex + maxResults)
+  const nextCursor = startIndex + items.length
+
+  return {
+    items,
+    cursor: nextCursor < sortedItems.length ? nextCursor : null,
+    hasMore: nextCursor < sortedItems.length,
+  }
+}
+
+export async function getPassagensResumo({ empresaId = '', empresaNome = '' } = {}) {
+  if (isConfigured && db) {
+    const passagensCollection = collection(db, 'passagens')
+    const viagensCollection = collection(db, 'viagens')
+    const filtrosEmpresaPassagens = empresaId ? [where('empresaId', '==', empresaId)] : []
+    const filtrosEmpresaViagens = empresaId ? [where('empresaId', '==', empresaId)] : []
+    const [totalPassagensSnapshot, totalEmbarcadasSnapshot, totalCanceladasSnapshot, totalViagensAtivasSnapshot] = await Promise.all([
+      getCountFromServer(query(passagensCollection, ...filtrosEmpresaPassagens)),
+      getCountFromServer(query(passagensCollection, ...filtrosEmpresaPassagens, where('status', '==', 'Embarcado'))),
+      getCountFromServer(query(passagensCollection, ...filtrosEmpresaPassagens, where('status', '==', 'Cancelada'))),
+      getCountFromServer(query(viagensCollection, ...filtrosEmpresaViagens, where('status', 'in', ['Aberta', 'Embarcando']))),
+    ])
+
+    const totalPassagens = Number(totalPassagensSnapshot.data().count || 0)
+    const totalEmbarcadas = Number(totalEmbarcadasSnapshot.data().count || 0)
+    const totalCanceladas = Number(totalCanceladasSnapshot.data().count || 0)
+    const totalViagensAtivas = Number(totalViagensAtivasSnapshot.data().count || 0)
+
+    return {
+      totalPassagens,
+      totalViagensAtivas,
+      totalEmbarcadas,
+      totalPendentes: Math.max(0, totalPassagens - totalEmbarcadas - totalCanceladas),
+    }
+  }
+
+  const store = readStore()
+  const passagens = filterItemsByEmpresa(store.passagens || [], empresaId, empresaNome)
+  const viagensAtivas = filterItemsByEmpresa(store.viagens || [], empresaId, empresaNome)
+    .filter((item) => ['Aberta', 'Embarcando'].includes(item.status))
+
+  return {
+    totalPassagens: passagens.length,
+    totalViagensAtivas: viagensAtivas.length,
+    totalEmbarcadas: passagens.filter((item) => item.status === 'Embarcado').length,
+    totalPendentes: passagens.filter((item) => !['Embarcado', 'Cancelada'].includes(item.status)).length,
+  }
+}
+
+export async function getViagemById(viagemId, { empresaId = '', empresaNome = '' } = {}) {
+  if (!viagemId) {
+    return null
+  }
+
+  if (isConfigured && db) {
+    const snapshot = await getDoc(doc(db, 'viagens', viagemId))
+    if (!snapshot.exists()) {
+      return null
+    }
+
+    const item = { id: snapshot.id, ...snapshot.data() }
+    return filterItemsByEmpresa([item], empresaId, empresaNome)[0] || null
+  }
+
+  const store = readStore()
+  return filterItemsByEmpresa((store.viagens || []).filter((item) => item.id === viagemId), empresaId, empresaNome)[0] || null
+}
+
+export async function abrirVendaPassagemHorario(dados) {
+  const viagemId = dados.viagemId || gerarViagemOperacionalId(dados)
+  const agora = new Date().toISOString()
+  const caixaAbertoAtual = await obterCaixaPassagemAberto({
+    empresaId: dados.empresaId || '',
+    empresaNome: dados.empresaNome || '',
+  })
+
+  if (caixaAbertoAtual && caixaAbertoAtual.id !== viagemId) {
+    throw new Error(`Ja existe um caixa aberto para ${caixaAbertoAtual.embarcacaoNome || 'outra embarcacao'} em ${caixaAbertoAtual.dataViagem || '-'} ${caixaAbertoAtual.horarioSaida || ''}. Feche esse caixa antes de abrir o proximo.`)
+  }
+
+  const viagemAtual = await getViagemById(viagemId, { empresaId: dados.empresaId || '', empresaNome: dados.empresaNome || '' })
+
+  const payload = montarPayloadViagemProgramada({
+    id: viagemId,
+    codigoViagem: viagemAtual?.codigoViagem || dados.codigoViagem || gerarCodigoViagem(),
+    origemOperacao: 'passagens',
+    programacaoViagemId: dados.programacaoViagemId || viagemAtual?.programacaoViagemId || '',
+    empresaId: dados.empresaId || viagemAtual?.empresaId || '',
+    empresaNome: dados.empresaNome || viagemAtual?.empresaNome || '',
+    rotaId: dados.rotaId || viagemAtual?.rotaId || '',
+    origem: dados.origem || viagemAtual?.origem || '',
+    destino: dados.destino || viagemAtual?.destino || '',
+    terminalOrigem: dados.terminalOrigem || viagemAtual?.terminalOrigem || '',
+    terminalDestino: dados.terminalDestino || viagemAtual?.terminalDestino || '',
+    embarcacaoId: dados.embarcacaoId || viagemAtual?.embarcacaoId || '',
+    embarcacaoNome: dados.embarcacaoNome || viagemAtual?.embarcacaoNome || '',
+    dataViagem: dados.dataViagem || viagemAtual?.dataViagem || '',
+    horarioSaida: dados.horarioSaida || viagemAtual?.horarioSaida || '',
+    capacidadeTotal: Number(dados.capacidadeTotal || viagemAtual?.capacidadeTotal || 0),
+    vagasVendidas: Number(viagemAtual?.vagasVendidas || 0),
+    valorPadrao: Number(dados.valorPadrao || viagemAtual?.valorPadrao || 0),
+    duracaoMinutos: Number(dados.duracaoMinutos || viagemAtual?.duracaoMinutos || 0),
+    status: 'Aberta',
+    operadorNome: dados.operadorNome || '',
+    operadorEmail: dados.operadorEmail || '',
+    criadoEm: viagemAtual?.criadoEm || agora,
+    atualizadoEm: agora,
+  })
+
+  const viagem = {
+    ...viagemAtual,
+    ...payload,
+    caixaAbertoEm: agora,
+    caixaAbertoPorNome: dados.operadorNome || '',
+    caixaFechadoEm: null,
+    caixaFechadoPorNome: '',
+  }
+
+  if (isConfigured && db) {
+    await setDoc(doc(db, 'viagens', viagemId), {
+      ...viagem,
+      criadoEm: viagemAtual ? viagemAtual.criadoEm || serverTimestamp() : serverTimestamp(),
+      atualizadoEm: serverTimestamp(),
+      caixaAbertoEm: serverTimestamp(),
+    }, { merge: true })
+  } else {
+    const store = readStore()
+    store.viagens = [
+      ...(store.viagens || []).filter((item) => item.id !== viagemId),
+      viagem,
+    ]
+    writeStore(store)
+  }
+
+  return viagem
+}
+
+export async function encerrarVendaPassagemHorario(viagemId, actor = {}) {
+  if (!viagemId) {
+    throw new Error('Selecione um horario para encerrar o caixa.')
+  }
+
+  const viagem = await getViagemById(viagemId, { empresaId: actor.empresaId || '', empresaNome: actor.empresaNome || '' })
+
+  if (!viagem) {
+    throw new Error('Horario nao encontrado para encerramento.')
+  }
+
+  const fechadoEm = new Date().toISOString()
+  const passagens = await listarPassagensPorViagem(viagemId, { empresaId: actor.empresaId || '', empresaNome: actor.empresaNome || '' })
+  const resumo = {
+    fechadoEm,
+    totalArrecadado: passagens
+      .filter((item) => item.status !== 'Cancelada')
+      .reduce((total, item) => total + Number(item.valor || 0), 0),
+    passagensDoHorario: passagens.filter((item) => item.status !== 'Cancelada' && passagemImpactaCapacidade(item)).length,
+    passagensAntecipadas: passagens.filter((item) => item.status !== 'Cancelada' && !passagemImpactaCapacidade(item)).length,
+    passagensCanceladas: passagens.filter((item) => item.status === 'Cancelada').length,
+  }
+
+  if (isConfigured && db) {
+    await updateDoc(doc(db, 'viagens', viagemId), {
+      status: 'Fechada',
+      caixaFechadoEm: serverTimestamp(),
+      caixaFechadoPorNome: actor.operadorNome || '',
+      atualizadoEm: serverTimestamp(),
+    })
+  } else {
+    const store = readStore()
+    store.viagens = (store.viagens || []).map((item) =>
+      item.id === viagemId
+        ? {
+            ...item,
+            status: 'Fechada',
+            caixaFechadoEm: fechadoEm,
+            caixaFechadoPorNome: actor.operadorNome || '',
+            atualizadoEm: fechadoEm,
+          }
+        : item,
+    )
+    writeStore(store)
+  }
+
+  return {
+    viagem: {
+      ...viagem,
+      status: 'Fechada',
+      caixaFechadoEm: fechadoEm,
+      caixaFechadoPorNome: actor.operadorNome || '',
+      atualizadoEm: fechadoEm,
+    },
+    passagens,
+    resumo,
+  }
+}
+
+function compararDataDesc(left, right) {
+  const leftDate = getDateFromUnknownValue(left)
+  const rightDate = getDateFromUnknownValue(right)
+
+  if (!leftDate && !rightDate) {
+    return 0
+  }
+
+  if (!leftDate) {
+    return 1
+  }
+
+  if (!rightDate) {
+    return -1
+  }
+
+  return rightDate.getTime() - leftDate.getTime()
+}
+
+export function montarResumoVendaPassagemHorario(viagem, passagens = []) {
+  const fechadoEm = viagem?.caixaFechadoEm || viagem?.atualizadoEm || null
+
+  return {
+    viagem,
+    passagens,
+    resumo: {
+      abertoEm: viagem?.caixaAbertoEm || null,
+      fechadoEm,
+      totalArrecadado: passagens
+        .filter((item) => item.status !== 'Cancelada')
+        .reduce((total, item) => total + Number(item.valor || 0), 0),
+      passagensDoHorario: passagens.filter((item) => item.status !== 'Cancelada' && passagemImpactaCapacidade(item)).length,
+      passagensAntecipadas: passagens.filter((item) => item.status !== 'Cancelada' && !passagemImpactaCapacidade(item)).length,
+      passagensCanceladas: passagens.filter((item) => item.status === 'Cancelada').length,
+    },
+  }
+}
+
+export async function obterResumoVendaPassagemHorario(viagemId, { empresaId = '', empresaNome = '' } = {}) {
+  const viagem = await getViagemById(viagemId, { empresaId, empresaNome })
+
+  if (!viagem) {
+    throw new Error('Viagem nao encontrada.')
+  }
+
+  const passagens = await listarPassagensPorViagem(viagemId, { empresaId, empresaNome })
+  return montarResumoVendaPassagemHorario(viagem, passagens)
+}
+
+export async function listarCaixasPassagemAbertos({ empresaId = '', empresaNome = '' } = {}) {
+  const viagens = await listCollectionOnce('viagens', { empresaId, empresaNome })
+
+  return viagens
+    .filter((item) => isCaixaPassagemAberto(item))
+    .sort((a, b) => {
+      const comparacaoAbertura = compararDataDesc(a?.caixaAbertoEm, b?.caixaAbertoEm)
+
+      if (comparacaoAbertura !== 0) {
+        return comparacaoAbertura
+      }
+
+      return String(b?.horarioSaida || '').localeCompare(String(a?.horarioSaida || ''))
+    })
+}
+
+export async function obterCaixaPassagemAberto({ empresaId = '', empresaNome = '' } = {}) {
+  const itens = await listarCaixasPassagemAbertos({ empresaId, empresaNome })
+  return itens[0] || null
+}
+
+export async function listarHistoricoCaixasPassagem({ empresaId = '', empresaNome = '', dataViagem = '' } = {}) {
+  const viagens = await listCollectionOnce('viagens', { empresaId, empresaNome })
+
+  return viagens
+    .filter((item) => isHistoricoCaixaPassagemFechado(item))
+    .filter((item) => (dataViagem ? item.dataViagem === dataViagem : true))
+    .sort((a, b) => {
+      const comparacaoAbertura = compararDataDesc(a?.caixaAbertoEm, b?.caixaAbertoEm)
+
+      if (comparacaoAbertura !== 0) {
+        return comparacaoAbertura
+      }
+
+      return String(b?.horarioSaida || '').localeCompare(String(a?.horarioSaida || ''))
+    })
+}
+
+export async function criarPassageiro(dados) {
+  const agora = new Date().toISOString()
+  const payload = prepareCollectionPayload('passageiros', {
+    empresaId: dados.empresaId || '',
+    empresaNome: dados.empresaNome || '',
+    nome: String(dados.nome || '').trim(),
+    telefone: String(dados.telefone || '').trim(),
+    documento: normalizarDocumento(dados.documento),
+    email: String(dados.email || '').trim(),
+    tipo: dados.tipo || 'Adulto',
+    criadoEm: agora,
+    atualizadoEm: agora,
+  })
+
+  if (isConfigured && db) {
+    const passageiroRef = await addDoc(collection(db, 'passageiros'), {
+      ...payload,
+      criadoEm: serverTimestamp(),
+      atualizadoEm: serverTimestamp(),
+    })
+    return { id: passageiroRef.id, ...payload }
+  }
+
+  const store = readStore()
+  const passageiro = {
+    id: `passageiro-${Date.now()}`,
+    ...payload,
+  }
+  store.passageiros = [...(store.passageiros || []), passageiro]
+  writeStore(store)
+  return passageiro
+}
+
+export async function buscarPassageiros(searchTerm, maxResults = 8, { empresaId = '', empresaNome = '' } = {}) {
+  const term = String(searchTerm || '').trim()
+
+  if (!term) {
+    return []
+  }
+
+  const normalizedDocumento = normalizarDocumento(term)
+  const [porNome, porDocumento] = await Promise.all([
+    searchCollectionByField('passageiros', 'nome', term, maxResults, { empresaId, empresaNome }),
+    normalizedDocumento
+      ? searchCollectionByField('passageiros', 'documentoBusca', normalizedDocumento, maxResults, { empresaId, empresaNome })
+      : Promise.resolve([]),
+  ])
+
+  const results = new Map()
+  for (const item of [...porNome, ...porDocumento]) {
+    results.set(item.id, item)
+  }
+
+  return [...results.values()].slice(0, maxResults)
+}
+
+async function encontrarOuCriarPassageiro(dados) {
+  const empresaId = dados.empresaId || ''
+  const empresaNome = dados.empresaNome || ''
+  const documento = normalizarDocumento(dados.documento)
+
+  if (documento) {
+    const encontrados = await searchCollectionByField('passageiros', 'documentoBusca', documento, 1, { empresaId, empresaNome })
+    if (encontrados[0]) {
+      return encontrados[0]
+    }
+  }
+
+  const nome = String(dados.nome || '').trim()
+  if (nome) {
+    const encontrados = await searchCollectionByField('passageiros', 'nome', nome, 5, { empresaId, empresaNome })
+    const existente = encontrados.find((item) => String(item.nome || '').trim().toLowerCase() === nome.toLowerCase())
+    if (existente) {
+      return existente
+    }
+  }
+
+  return criarPassageiro(dados)
+}
+
+export async function venderPassagem(dados) {
+  const empresaId = dados.empresaId || ''
+  const empresaNome = dados.empresaNome || ''
+  const viagemId = dados.viagemId || gerarViagemOperacionalId(dados)
+  const impactaCapacidade = passagemImpactaCapacidade(dados)
+  const passageiro = await encontrarOuCriarPassageiro({
+    empresaId,
+    empresaNome,
+    nome: dados.passageiroNome,
+    telefone: dados.passageiroTelefone,
+    documento: dados.passageiroDocumento,
+    email: dados.passageiroEmail,
+    tipo: dados.tipoPassageiro || 'Adulto',
+  })
+  const codigo = await gerarCodigoPassagem(obterUltimoCodigoPassagemPorPrefixo)
+  const qrTargetUrl = montarUrlEmbarquePassagem(codigo)
+  const qrCodeDataUrl = dados.qrCodeDataUrl || ''
+  const agora = new Date().toISOString()
+
+  if (isConfigured && db) {
+    const { gerarQRCode } = await import('../utils/gerarQRCode.js')
+    const qrGerado = qrCodeDataUrl || await gerarQRCode(qrTargetUrl)
+    const viagemRef = doc(db, 'viagens', viagemId)
+    const passagemRef = doc(collection(db, 'passagens'))
+    const caixaRef = doc(collection(db, 'caixa'))
+
+    await runTransaction(db, async (transaction) => {
+      const viagemSnapshot = await transaction.get(viagemRef)
+      let viagem = viagemSnapshot.exists() ? viagemSnapshot.data() : null
+
+      if (!viagem) {
+        viagem = montarPayloadViagemProgramada({
+          id: viagemId,
+          codigoViagem: dados.codigoViagem || gerarCodigoViagem(),
+          origemOperacao: 'passagens',
+          programacaoViagemId: dados.programacaoViagemId || '',
+          empresaId,
+          empresaNome,
+          rotaId: dados.rotaId || '',
+          origem: dados.origem || '',
+          destino: dados.destino || '',
+          terminalOrigem: dados.terminalOrigem || '',
+          terminalDestino: dados.terminalDestino || '',
+          embarcacaoId: dados.embarcacaoId || '',
+          embarcacaoNome: dados.embarcacaoNome || '',
+          dataViagem: dados.dataViagem || '',
+          horarioSaida: dados.horarioSaida || '',
+          capacidadeTotal: Number(dados.capacidadeTotal || 0),
+          valorPadrao: Number(dados.valor || dados.valorPadrao || 0),
+          duracaoMinutos: Number(dados.duracaoMinutos || 0),
+          status: 'Aberta',
+          operadorNome: dados.operadorNome || '',
+          operadorEmail: dados.operadorEmail || '',
+        })
+
+        transaction.set(viagemRef, {
+          ...viagem,
+          criadoEm: serverTimestamp(),
+          atualizadoEm: serverTimestamp(),
+        })
+      }
+
+      const vagasDisponiveis = Number(viagem.vagasDisponiveis || 0)
+
+      if (!['Aberta', 'Embarcando'].includes(viagem.status)) {
+        throw new Error('A viagem nao esta disponivel para venda.')
+      }
+
+      if (impactaCapacidade && vagasDisponiveis <= 0) {
+        throw new Error('Nao ha vagas disponiveis para esta viagem.')
+      }
+
+      transaction.set(passagemRef, {
+        codigo,
+        codigoBusca: normalizeSearchValue(codigo, { upper: true }),
+        empresaId,
+        empresaNome,
+        viagemId,
+        rotaId: dados.rotaId || viagem.rotaId || '',
+        origem: dados.origem || viagem.origem || '',
+        destino: dados.destino || viagem.destino || '',
+        terminalOrigem: dados.terminalOrigem || viagem.terminalOrigem || '',
+        terminalDestino: dados.terminalDestino || viagem.terminalDestino || '',
+        embarcacaoId: dados.embarcacaoId || viagem.embarcacaoId || '',
+        embarcacaoNome: dados.embarcacaoNome || viagem.embarcacaoNome || '',
+        dataViagem: dados.dataViagem || viagem.dataViagem || '',
+        horarioSaida: dados.horarioSaida || viagem.horarioSaida || '',
+        passageiroId: passageiro.id,
+        passageiroNome: passageiro.nome || dados.passageiroNome || '',
+        passageiroBusca: normalizeSearchValue(passageiro.nome || dados.passageiroNome || ''),
+        passageiroDocumento: normalizarDocumento(passageiro.documento || dados.passageiroDocumento),
+        documentoBusca: normalizeSearchValue(normalizarDocumento(passageiro.documento || dados.passageiroDocumento)),
+        passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
+        tarifaTipo: dados.tarifaTipo || 'Inteira',
+        impactaCapacidade,
+        valor: Number(dados.valor || 0),
+        formaPagamento: dados.formaPagamento || 'Dinheiro',
+        status: 'Vendida',
+        qrCodeDataUrl: qrGerado,
+        bilheteUrl: qrTargetUrl,
+        operadorNome: dados.operadorNome || '',
+        operadorEmail: dados.operadorEmail || '',
+        criadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp(),
+      })
+
+      transaction.set(caixaRef, {
+        tipo: 'entrada',
+        origem: 'Venda de passagem',
+        passagemCodigo: codigo,
+        viagemId,
+        valor: Number(dados.valor || 0),
+        formaPagamento: dados.formaPagamento || 'Dinheiro',
+        empresaId,
+        empresaNome,
+        criadoEm: serverTimestamp(),
+      })
+
+      const payloadAtualizacaoViagem = {
+        atualizadoEm: serverTimestamp(),
+      }
+
+      if (impactaCapacidade) {
+        payloadAtualizacaoViagem.vagasVendidas = increment(1)
+        payloadAtualizacaoViagem.vagasDisponiveis = increment(-1)
+      }
+
+      transaction.update(viagemRef, payloadAtualizacaoViagem)
+    })
+
+    await ajustarResumoCaixa({
+      deltaEntrada: Number(dados.valor || 0),
+      deltaRegistros: 1,
+    })
+    await registrarLogUso({
+      acao: 'passagem_vendida',
+      detalhes: `Passagem ${codigo} vendida para ${passageiro.nome || dados.passageiroNome || 'passageiro'}.`,
+      user: {
+        nome: dados.operadorNome || '',
+        email: dados.operadorEmail || '',
+        empresaId,
+        empresaNome,
+      },
+      empresaId,
+      empresaNome,
+    })
+
+    return {
+      id: passagemRef.id,
+      codigo,
+      empresaId,
+      empresaNome,
+      viagemId,
+      rotaId: dados.rotaId || '',
+      origem: dados.origem || '',
+      destino: dados.destino || '',
+      terminalOrigem: dados.terminalOrigem || '',
+      terminalDestino: dados.terminalDestino || '',
+      embarcacaoId: dados.embarcacaoId || '',
+      embarcacaoNome: dados.embarcacaoNome || '',
+      dataViagem: dados.dataViagem || '',
+      horarioSaida: dados.horarioSaida || '',
+      passageiroId: passageiro.id,
+      passageiroNome: passageiro.nome || dados.passageiroNome || '',
+      passageiroDocumento: normalizarDocumento(passageiro.documento || dados.passageiroDocumento),
+      passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
+      tarifaTipo: dados.tarifaTipo || 'Inteira',
+      impactaCapacidade,
+      valor: Number(dados.valor || 0),
+      formaPagamento: dados.formaPagamento || 'Dinheiro',
+      status: 'Vendida',
+      qrCodeDataUrl: qrGerado,
+      bilheteUrl: qrTargetUrl,
+      operadorNome: dados.operadorNome || '',
+      operadorEmail: dados.operadorEmail || '',
+      criadoEm: agora,
+      atualizadoEm: agora,
+    }
+  }
+
+  const { gerarQRCode } = await import('../utils/gerarQRCode.js')
+  const qrGerado = qrCodeDataUrl || await gerarQRCode(qrTargetUrl)
+  const store = readStore()
+  let viagemIndex = (store.viagens || []).findIndex((item) => item.id === viagemId)
+
+  if (viagemIndex < 0) {
+    const viagemCriada = {
+      id: viagemId,
+      ...montarPayloadViagemProgramada({
+        id: viagemId,
+        codigoViagem: dados.codigoViagem || gerarCodigoViagem(),
+        origemOperacao: 'passagens',
+        programacaoViagemId: dados.programacaoViagemId || '',
+        empresaId,
+        empresaNome,
+        rotaId: dados.rotaId || '',
+        origem: dados.origem || '',
+        destino: dados.destino || '',
+        terminalOrigem: dados.terminalOrigem || '',
+        terminalDestino: dados.terminalDestino || '',
+        embarcacaoId: dados.embarcacaoId || '',
+        embarcacaoNome: dados.embarcacaoNome || '',
+        dataViagem: dados.dataViagem || '',
+        horarioSaida: dados.horarioSaida || '',
+        capacidadeTotal: Number(dados.capacidadeTotal || 0),
+        valorPadrao: Number(dados.valor || dados.valorPadrao || 0),
+        duracaoMinutos: Number(dados.duracaoMinutos || 0),
+        status: 'Aberta',
+        operadorNome: dados.operadorNome || '',
+        operadorEmail: dados.operadorEmail || '',
+      }),
+    }
+
+    store.viagens = [...(store.viagens || []), viagemCriada]
+    viagemIndex = store.viagens.length - 1
+  }
+
+  const viagemAtual = store.viagens[viagemIndex]
+  if (!['Aberta', 'Embarcando'].includes(viagemAtual.status)) {
+    throw new Error('A viagem nao esta disponivel para venda.')
+  }
+
+  if (impactaCapacidade && Number(viagemAtual.vagasDisponiveis || 0) <= 0) {
+    throw new Error('Nao ha vagas disponiveis para esta viagem.')
+  }
+
+  const passagem = prepareCollectionPayload('passagens', {
+    id: `passagem-${Date.now()}`,
+    codigo,
+    empresaId,
+    empresaNome,
+    viagemId,
+    rotaId: dados.rotaId || viagemAtual.rotaId || '',
+    origem: dados.origem || viagemAtual.origem || '',
+    destino: dados.destino || viagemAtual.destino || '',
+    terminalOrigem: dados.terminalOrigem || viagemAtual.terminalOrigem || '',
+    terminalDestino: dados.terminalDestino || viagemAtual.terminalDestino || '',
+    embarcacaoId: dados.embarcacaoId || viagemAtual.embarcacaoId || '',
+    embarcacaoNome: dados.embarcacaoNome || viagemAtual.embarcacaoNome || '',
+    dataViagem: dados.dataViagem || viagemAtual.dataViagem || '',
+    horarioSaida: dados.horarioSaida || viagemAtual.horarioSaida || '',
+    passageiroId: passageiro.id,
+    passageiroNome: passageiro.nome || dados.passageiroNome || '',
+    passageiroDocumento: normalizarDocumento(passageiro.documento || dados.passageiroDocumento),
+    passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
+    tarifaTipo: dados.tarifaTipo || 'Inteira',
+    impactaCapacidade,
+    valor: Number(dados.valor || 0),
+    formaPagamento: dados.formaPagamento || 'Dinheiro',
+    status: 'Vendida',
+    qrCodeDataUrl: qrGerado,
+    bilheteUrl: qrTargetUrl,
+    operadorNome: dados.operadorNome || '',
+    operadorEmail: dados.operadorEmail || '',
+    criadoEm: agora,
+    atualizadoEm: agora,
+  })
+
+  store.passagens = [...(store.passagens || []), passagem]
+  store.caixa = [
+    ...(store.caixa || []),
+    {
+      id: `caixa-${Date.now()}`,
+      tipo: 'entrada',
+      origem: 'Venda de passagem',
+      passagemCodigo: codigo,
+      viagemId,
+      valor: Number(dados.valor || 0),
+      formaPagamento: dados.formaPagamento || 'Dinheiro',
+      empresaId,
+      empresaNome,
+      criadoEm: agora,
+    },
+  ]
+  store.viagens[viagemIndex] = {
+    ...viagemAtual,
+    vagasVendidas: impactaCapacidade ? Number(viagemAtual.vagasVendidas || 0) + 1 : Number(viagemAtual.vagasVendidas || 0),
+    vagasDisponiveis: impactaCapacidade ? Math.max(0, Number(viagemAtual.vagasDisponiveis || 0) - 1) : Number(viagemAtual.vagasDisponiveis || 0),
+    atualizadoEm: agora,
+  }
+
+  const resumoAtual = garantirResumoCaixaLocal(store)
+  resumoAtual.totalEntrada = Number(resumoAtual.totalEntrada || 0) + Number(dados.valor || 0)
+  resumoAtual.totalRegistros = Number(resumoAtual.totalRegistros || 0) + 1
+  writeStore(store)
+
+  return passagem
+}
+
+export async function listarPassagens({ empresaId = '', empresaNome = '', searchTerm = '', viagemId = '', dataViagem = '', status = '' } = {}) {
+  const items = await listCollectionOnce('passagens', { empresaId, empresaNome })
+  const term = String(searchTerm || '').trim().toLowerCase()
+  const termDocumento = normalizarDocumento(searchTerm)
+
+  return items
+    .filter((item) => (viagemId ? item.viagemId === viagemId : true))
+    .filter((item) => (dataViagem ? item.dataViagem === dataViagem : true))
+    .filter((item) => (status ? item.status === status : true))
+    .filter((item) =>
+      !term
+        ? true
+        : String(item.codigo || '').toLowerCase().includes(term) ||
+          String(item.passageiroNome || '').toLowerCase().includes(term) ||
+          String(item.passageiroDocumento || '').includes(termDocumento) ||
+          String(item.origem || '').toLowerCase().includes(term) ||
+          String(item.destino || '').toLowerCase().includes(term),
+    )
+    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
+}
+
+export async function listarPassagensPage({
+  empresaId = '',
+  empresaNome = '',
+  viagemId = '',
+  dataViagem = '',
+  status = '',
+  maxResults = 12,
+  cursor = null,
+} = {}) {
+  const filtrosAtivos = Boolean(viagemId || dataViagem || status)
+
+  if (!filtrosAtivos) {
+    return listCollectionPage('passagens', {
+      orderField: 'criadoEm',
+      orderDirection: 'desc',
+      maxResults,
+      cursor,
+      empresaId,
+      empresaNome,
+    })
+  }
+
+  if (isConfigured && db) {
+    const constraints = []
+
+    if (empresaId) {
+      constraints.push(where('empresaId', '==', empresaId))
+    }
+
+    if (viagemId) {
+      constraints.push(where('viagemId', '==', viagemId))
+    }
+
+    if (dataViagem) {
+      constraints.push(where('dataViagem', '==', dataViagem))
+    }
+
+    if (status) {
+      constraints.push(where('status', '==', status))
+    }
+
+    constraints.push(orderBy('criadoEm', 'desc'))
+
+    if (cursor) {
+      constraints.push(startAfter(cursor))
+    }
+
+    constraints.push(limit(maxResults))
+
+    const snapshot = await getDocs(query(collection(db, 'passagens'), ...constraints))
+
+    return {
+      items: filterItemsByEmpresa(mapDocs(snapshot), empresaId, empresaNome),
+      cursor: snapshot.docs.at(-1) || null,
+      hasMore: snapshot.docs.length === maxResults,
+    }
+  }
+
+  const sortedItems = filterItemsByEmpresa(readStore().passagens || [], empresaId, empresaNome)
+    .filter((item) => (viagemId ? item.viagemId === viagemId : true))
+    .filter((item) => (dataViagem ? item.dataViagem === dataViagem : true))
+    .filter((item) => (status ? item.status === status : true))
+    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
+  const startIndex = Number.isFinite(Number(cursor)) ? Number(cursor) : 0
+  const items = sortedItems.slice(startIndex, startIndex + maxResults)
+  const nextCursor = startIndex + items.length
+
+  return {
+    items,
+    cursor: nextCursor < sortedItems.length ? nextCursor : null,
+    hasMore: nextCursor < sortedItems.length,
+  }
+}
+
+export async function buscarPassagens(searchTerm, {
+  empresaId = '',
+  empresaNome = '',
+  viagemId = '',
+  dataViagem = '',
+  status = '',
+  maxResults = 24,
+} = {}) {
+  const term = String(searchTerm || '').trim()
+
+  if (!term) {
+    const page = await listarPassagensPage({ empresaId, empresaNome, viagemId, dataViagem, status, maxResults })
+    return page.items
+  }
+
+  const normalizedDocumento = normalizarDocumento(term)
+
+  if (isConfigured && db) {
+    const results = new Map()
+    const codigoConstraints = []
+
+    if (empresaId) {
+      codigoConstraints.push(where('empresaId', '==', empresaId))
+    }
+
+    codigoConstraints.push(where('codigoBusca', '==', normalizeSearchValue(term, { upper: true })))
+    codigoConstraints.push(limit(1))
+    const codigoSnapshot = await getDocs(
+      query(collection(db, 'passagens'), ...codigoConstraints),
+    )
+
+    for (const item of mapDocs(codigoSnapshot)) {
+      results.set(item.id, item)
+    }
+
+    const passageiroConstraints = []
+
+    if (empresaId) {
+      passageiroConstraints.push(where('empresaId', '==', empresaId))
+    }
+
+    passageiroConstraints.push(orderBy('passageiroBusca'))
+    passageiroConstraints.push(startAt(normalizeSearchValue(term)))
+    passageiroConstraints.push(endAt(`${normalizeSearchValue(term)}\uf8ff`))
+    passageiroConstraints.push(limit(maxResults))
+
+    const passageiroSnapshot = await getDocs(
+      query(collection(db, 'passagens'), ...passageiroConstraints),
+    )
+
+    for (const item of mapDocs(passageiroSnapshot)) {
+      results.set(item.id, item)
+    }
+
+    if (normalizedDocumento) {
+      const documentoConstraints = []
+
+      if (empresaId) {
+        documentoConstraints.push(where('empresaId', '==', empresaId))
+      }
+
+      documentoConstraints.push(orderBy('documentoBusca'))
+      documentoConstraints.push(startAt(normalizeSearchValue(normalizedDocumento)))
+      documentoConstraints.push(endAt(`${normalizeSearchValue(normalizedDocumento)}\uf8ff`))
+      documentoConstraints.push(limit(maxResults))
+
+      const documentoSnapshot = await getDocs(
+        query(collection(db, 'passagens'), ...documentoConstraints),
+      )
+
+      for (const item of mapDocs(documentoSnapshot)) {
+        results.set(item.id, item)
+      }
+    }
+
+    return filterItemsByEmpresa([...results.values()], empresaId, empresaNome)
+      .filter((item) => (viagemId ? item.viagemId === viagemId : true))
+      .filter((item) => (dataViagem ? item.dataViagem === dataViagem : true))
+      .filter((item) => (status ? item.status === status : true))
+      .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
+      .slice(0, maxResults)
+  }
+
+  return filterItemsByEmpresa(readStore().passagens || [], empresaId, empresaNome)
+    .filter((item) =>
+      String(item.codigo || '').toLowerCase().includes(term.toLowerCase()) ||
+      String(item.passageiroNome || '').toLowerCase().includes(term.toLowerCase()) ||
+      String(item.passageiroDocumento || '').includes(normalizedDocumento),
+    )
+    .filter((item) => (viagemId ? item.viagemId === viagemId : true))
+    .filter((item) => (dataViagem ? item.dataViagem === dataViagem : true))
+    .filter((item) => (status ? item.status === status : true))
+    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')))
+    .slice(0, maxResults)
+}
+
+export async function buscarPassagemPorCodigo(codigo, { empresaId = '', empresaNome = '' } = {}) {
+  if (!codigo) {
+    return null
+  }
+
+  if (isConfigured && db) {
+    const snapshot = await getDocs(
+      query(
+        collection(db, 'passagens'),
+        where('codigoBusca', '==', normalizeSearchValue(codigo, { upper: true })),
+        limit(1),
+      ),
+    )
+    const found = mapDocs(snapshot)[0] || null
+    return filterItemsByEmpresa(found ? [found] : [], empresaId, empresaNome)[0] || null
+  }
+
+  const store = readStore()
+  return filterItemsByEmpresa((store.passagens || []).filter((item) => item.codigo === codigo), empresaId, empresaNome)[0] || null
+}
+
+export async function cancelarPassagem(passagem, actorUser = null) {
+  if (!passagem?.id) {
+    throw new Error('Passagem nao encontrada.')
+  }
+
+  if (passagem.status === 'Cancelada') {
+    return passagem
+  }
+
+  if (passagem.status === 'Embarcado') {
+    throw new Error('Nao e possivel cancelar uma passagem ja embarcada.')
+  }
+
+  const timestamp = new Date().toISOString()
+  const impactaCapacidade = passagemImpactaCapacidade(passagem)
+
+  if (isConfigured && db) {
+    await runTransaction(db, async (transaction) => {
+      const passagemRef = doc(db, 'passagens', passagem.id)
+      const viagemRef = doc(db, 'viagens', passagem.viagemId)
+      const passagemSnapshot = await transaction.get(passagemRef)
+      const viagemSnapshot = await transaction.get(viagemRef)
+
+      if (!passagemSnapshot.exists()) {
+        throw new Error('Passagem nao encontrada.')
+      }
+
+      const atual = passagemSnapshot.data()
+      if (atual.status === 'Cancelada') {
+        return
+      }
+
+      transaction.update(passagemRef, {
+        status: 'Cancelada',
+        canceladoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp(),
+      })
+
+      if (impactaCapacidade && viagemSnapshot.exists()) {
+        transaction.update(viagemRef, {
+          vagasVendidas: increment(-1),
+          vagasDisponiveis: increment(1),
+          atualizadoEm: serverTimestamp(),
+        })
+      }
+    })
+
+    await addDoc(collection(db, 'caixa'), {
+      tipo: 'entrada',
+      origem: 'Estorno de passagem',
+      passagemCodigo: passagem.codigo,
+      viagemId: passagem.viagemId,
+      valor: -Math.abs(Number(passagem.valor || 0)),
+      formaPagamento: passagem.formaPagamento || 'Nao informado',
+      empresaId: passagem.empresaId || '',
+      empresaNome: passagem.empresaNome || '',
+      criadoEm: serverTimestamp(),
+    })
+    await ajustarResumoCaixa({
+      deltaEntrada: -Math.abs(Number(passagem.valor || 0)),
+      deltaRegistros: 1,
+    })
+
+    await registrarLogUso({
+      acao: 'passagem_cancelada',
+      detalhes: `Passagem ${passagem.codigo} cancelada.`,
+      user: actorUser,
+      empresaId: passagem.empresaId,
+      empresaNome: passagem.empresaNome,
+    })
+    return { ...passagem, status: 'Cancelada', canceladoEm: timestamp, atualizadoEm: timestamp }
+  }
+
+  const store = readStore()
+  store.passagens = (store.passagens || []).map((item) =>
+    item.id === passagem.id
+      ? {
+          ...item,
+          status: 'Cancelada',
+          canceladoEm: timestamp,
+          atualizadoEm: timestamp,
+        }
+      : item,
+  )
+  store.viagens = (store.viagens || []).map((item) =>
+    item.id === passagem.viagemId
+      ? {
+          ...item,
+          vagasVendidas: impactaCapacidade ? Math.max(0, Number(item.vagasVendidas || 0) - 1) : Number(item.vagasVendidas || 0),
+          vagasDisponiveis: impactaCapacidade ? Number(item.vagasDisponiveis || 0) + 1 : Number(item.vagasDisponiveis || 0),
+          atualizadoEm: timestamp,
+        }
+      : item,
+  )
+  store.caixa = [
+    ...(store.caixa || []),
+    {
+      id: `caixa-${Date.now()}`,
+      tipo: 'entrada',
+      origem: 'Estorno de passagem',
+      passagemCodigo: passagem.codigo,
+      viagemId: passagem.viagemId,
+      valor: -Math.abs(Number(passagem.valor || 0)),
+      formaPagamento: passagem.formaPagamento || 'Nao informado',
+      empresaId: passagem.empresaId || '',
+      empresaNome: passagem.empresaNome || '',
+      criadoEm: timestamp,
+    },
+  ]
+  const resumoCaixa = garantirResumoCaixaLocal(store)
+  resumoCaixa.totalEntrada = Number(resumoCaixa.totalEntrada || 0) - Math.abs(Number(passagem.valor || 0))
+  resumoCaixa.totalRegistros = Number(resumoCaixa.totalRegistros || 0) + 1
+  writeStore(store)
+  await registrarLogUso({
+    acao: 'passagem_cancelada',
+    detalhes: `Passagem ${passagem.codigo} cancelada.`,
+    user: actorUser,
+    empresaId: passagem.empresaId,
+    empresaNome: passagem.empresaNome,
+  })
+  return { ...passagem, status: 'Cancelada', canceladoEm: timestamp, atualizadoEm: timestamp }
+}
+
+export async function confirmarEmbarque(codigo, actorUser = null) {
+  const passagem = await buscarPassagemPorCodigo(codigo, {
+    empresaId: actorUser?.rootSuperadmin ? '' : actorUser?.empresaId || '',
+    empresaNome: actorUser?.empresaNome || '',
+  })
+
+  if (!passagem) {
+    throw new Error('Passagem nao encontrada.')
+  }
+
+  if (passagem.status === 'Cancelada') {
+    throw new Error('Passagem cancelada nao pode ser embarcada.')
+  }
+
+  if (passagem.status === 'Embarcado') {
+    throw new Error('Esta passagem ja foi embarcada.')
+  }
+
+  const timestamp = new Date().toISOString()
+  const operadorNome = actorUser?.nome || actorUser?.displayName || actorUser?.email || 'Operador'
+  const operadorEmail = actorUser?.email || ''
+
+  if (isConfigured && db) {
+    const passagemRef = doc(db, 'passagens', passagem.id)
+    await updateDoc(passagemRef, {
+      status: 'Embarcado',
+      embarcadoEm: serverTimestamp(),
+      embarcadoPorNome: operadorNome,
+      atualizadoEm: serverTimestamp(),
+    })
+
+    await addDoc(collection(db, 'checkins'), {
+      empresaId: passagem.empresaId || '',
+      empresaNome: passagem.empresaNome || '',
+      passagemCodigo: passagem.codigo,
+      passagemId: passagem.id,
+      viagemId: passagem.viagemId,
+      passageiroNome: passagem.passageiroNome || '',
+      passageiroDocumento: passagem.passageiroDocumento || '',
+      status: 'Embarcado',
+      operadorNome,
+      operadorEmail,
+      criadoEm: serverTimestamp(),
+    })
+
+    await registrarLogUso({
+      acao: 'embarque_confirmado',
+      detalhes: `Passagem ${passagem.codigo} embarcada por ${operadorNome}.`,
+      user: actorUser,
+      empresaId: passagem.empresaId,
+      empresaNome: passagem.empresaNome,
+    })
+
+    return {
+      ...passagem,
+      status: 'Embarcado',
+      embarcadoEm: timestamp,
+      embarcadoPorNome: operadorNome,
+      atualizadoEm: timestamp,
+    }
+  }
+
+  const store = readStore()
+  const checkin = {
+    id: `checkin-${Date.now()}`,
+    empresaId: passagem.empresaId || '',
+    empresaNome: passagem.empresaNome || '',
+    passagemCodigo: passagem.codigo,
+    passagemId: passagem.id,
+    viagemId: passagem.viagemId,
+    passageiroNome: passagem.passageiroNome || '',
+    passageiroDocumento: passagem.passageiroDocumento || '',
+    status: 'Embarcado',
+    operadorNome,
+    operadorEmail,
+    criadoEm: timestamp,
+  }
+
+  store.passagens = (store.passagens || []).map((item) =>
+    item.id === passagem.id
+      ? {
+          ...item,
+          status: 'Embarcado',
+          embarcadoEm: timestamp,
+          embarcadoPorNome: operadorNome,
+          atualizadoEm: timestamp,
+        }
+      : item,
+  )
+  store.checkins = [...(store.checkins || []), checkin]
+  writeStore(store)
+
+  await registrarLogUso({
+    acao: 'embarque_confirmado',
+    detalhes: `Passagem ${passagem.codigo} embarcada por ${operadorNome}.`,
+    user: actorUser,
+    empresaId: passagem.empresaId,
+    empresaNome: passagem.empresaNome,
+  })
+
+  return {
+    ...passagem,
+    status: 'Embarcado',
+    embarcadoEm: timestamp,
+    embarcadoPorNome: operadorNome,
+    atualizadoEm: timestamp,
+  }
+}
+
+export async function listarPassagensPorViagem(viagemId, { empresaId = '', empresaNome = '' } = {}) {
+  if (!viagemId) {
+    return []
+  }
+
+  const items = await listCollectionOnce('passagens', { empresaId, empresaNome })
+  return items
+    .filter((item) => item.viagemId === viagemId)
+    .sort((a, b) => String(a.passageiroNome || '').localeCompare(String(b.passageiroNome || '')))
 }

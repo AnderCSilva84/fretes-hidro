@@ -6,6 +6,7 @@ import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
+import { isRootSuperadminUser } from '../utils/systemConfig.js'
 import {
   addCollectionDocument,
   deleteCollectionDocument,
@@ -18,15 +19,23 @@ const initialForm = {
   origem: '',
   destino: '',
   terminalOrigem: '',
-  terminalDestino: '',
+  terminaisDestino: [],
   valor: '',
   duracaoMinutos: '',
+  percentualGratuidade: '',
+  exibirEm: 'ambos',
 }
 
 const PAGE_SIZE = 12
+const EXIBICAO_OPTIONS = [
+  { value: 'fretes', label: 'Somente Fretes' },
+  { value: 'passagens', label: 'Somente Passagens' },
+  { value: 'ambos', label: 'Fretes e Passagens' },
+]
 
 export default function RotasValores() {
   const { user } = useAuth()
+  const isRoot = isRootSuperadminUser(user)
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
   const { items: terminais } = useCollectionOnce('terminais', { empresaId, empresaNome })
@@ -41,6 +50,15 @@ export default function RotasValores() {
   const [searchActive, setSearchActive] = useState(false)
 
   const terminalOptions = useMemo(() => terminais.map((item) => item.nome).filter(Boolean), [terminais])
+
+  function toggleTerminalDestino(terminal) {
+    setForm((current) => ({
+      ...current,
+      terminaisDestino: current.terminaisDestino.includes(terminal)
+        ? current.terminaisDestino.filter((item) => item !== terminal)
+        : [...current.terminaisDestino, terminal],
+    }))
+  }
 
   useEffect(() => {
     let active = true
@@ -90,9 +108,15 @@ export default function RotasValores() {
       origem: rota.origem || '',
       destino: rota.destino || '',
       terminalOrigem: rota.terminalOrigem || '',
-      terminalDestino: rota.terminalDestino || '',
+      terminaisDestino: Array.isArray(rota.terminaisDestino)
+        ? rota.terminaisDestino
+        : rota.terminalDestino
+          ? [rota.terminalDestino]
+          : [],
       valor: rota.valor || '',
       duracaoMinutos: rota.duracaoMinutos || '',
+      percentualGratuidade: rota.percentualGratuidade ?? '',
+      exibirEm: rota.exibirEm || 'ambos',
     })
   }
 
@@ -122,13 +146,21 @@ export default function RotasValores() {
     setBusy(true)
 
     try {
+      if (!form.terminaisDestino.length) {
+        window.alert('Selecione pelo menos um terminal de destino.')
+        return
+      }
+
       const payload = {
         origem: form.origem.trim(),
         destino: form.destino.trim(),
         terminalOrigem: form.terminalOrigem,
-        terminalDestino: form.terminalDestino,
+        terminaisDestino: form.terminaisDestino,
+        terminalDestino: form.terminaisDestino[0] || '',
         valor: Number(form.valor || 0),
         duracaoMinutos: Number(form.duracaoMinutos || 0),
+        percentualGratuidade: Math.max(0, Number(form.percentualGratuidade || 0)),
+        exibirEm: form.exibirEm || 'ambos',
         empresaId: user?.empresaId || '',
         empresaNome: user?.empresaNome || '',
       }
@@ -277,22 +309,26 @@ export default function RotasValores() {
                 </select>
               </label>
 
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                <span>Terminal de destino</span>
-                <select
-                  value={form.terminalDestino}
-                  onChange={(event) => setForm((current) => ({ ...current, terminalDestino: event.target.value }))}
-                  className="min-h-9 w-full min-w-0 max-w-full rounded-[1rem] border border-blue-200 bg-white px-3 text-[0.85rem] text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 sm:min-h-10 sm:text-sm"
-                  required
-                >
-                  <option value="">Selecione um terminal</option>
-                  {terminalOptions.map((terminal) => (
-                    <option key={terminal} value={terminal}>
-                      {terminal}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                <span>Terminais de destino</span>
+                <div className="rounded-[1rem] border border-blue-200 bg-white p-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {terminalOptions.map((terminal) => (
+                      <label key={terminal} className="flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={form.terminaisDestino.includes(terminal)}
+                          onChange={() => toggleTerminalDestino(terminal)}
+                        />
+                        {terminal}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Selecione um ou mais terminais. O primeiro selecionado fica como destino principal por compatibilidade.
+                  </p>
+                </div>
+              </div>
 
               <Input
                 label="Valor padrao"
@@ -309,6 +345,31 @@ export default function RotasValores() {
                 value={form.duracaoMinutos}
                 onChange={(event) => setForm((current) => ({ ...current, duracaoMinutos: event.target.value }))}
               />
+              <Input
+                label="Percentual de gratuidade"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={form.percentualGratuidade}
+                onChange={(event) => setForm((current) => ({ ...current, percentualGratuidade: event.target.value }))}
+                placeholder="Ex.: 10"
+              />
+
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 md:col-span-2">
+                <span>Exibir linha em</span>
+                <select
+                  value={form.exibirEm}
+                  onChange={(event) => setForm((current) => ({ ...current, exibirEm: event.target.value }))}
+                  className="min-h-10 rounded-[1.1rem] border border-blue-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                >
+                  {EXIBICAO_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <div className="flex flex-wrap gap-3 md:col-span-2">
                 <Button type="submit" disabled={busy}>
@@ -358,17 +419,25 @@ export default function RotasValores() {
                   {rota.origem} - {rota.destino}
                 </p>
                 <p className="text-sm text-slate-500">Origem: {rota.terminalOrigem || 'Nao informado'}</p>
-                <p className="text-sm text-slate-500">Destino: {rota.terminalDestino || 'Nao informado'}</p>
+                <p className="text-sm text-slate-500">
+                  Destino: {Array.isArray(rota.terminaisDestino) && rota.terminaisDestino.length ? rota.terminaisDestino.join(', ') : rota.terminalDestino || 'Nao informado'}
+                </p>
                 <p className="text-sm text-slate-500">Valor padrao: R$ {Number(rota.valor || 0).toFixed(2)}</p>
                 <p className="text-sm text-slate-500">Duracao: {rota.duracaoMinutos ? `${rota.duracaoMinutos} min` : 'Nao informada'}</p>
+                <p className="text-sm text-slate-500">Gratuidade: {Number(rota.percentualGratuidade || 0).toFixed(2)}%</p>
+                <p className="text-sm text-slate-500">
+                  Exibicao: {EXIBICAO_OPTIONS.find((item) => item.value === (rota.exibirEm || 'ambos'))?.label || 'Fretes e Passagens'}
+                </p>
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button type="button" variant="secondary" onClick={() => iniciarEdicao(rota)} disabled={busy}>
                     Editar
                   </Button>
-                  <Button type="button" variant="danger" onClick={() => excluirRota(rota)} disabled={busy}>
-                    Excluir
-                  </Button>
+                  {isRoot ? (
+                    <Button type="button" variant="danger" onClick={() => excluirRota(rota)} disabled={busy}>
+                      Excluir
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))}

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PackageIcon, SearchIcon } from '../components/AppIcons.jsx'
 import Button from '../components/Button.jsx'
 import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
 import { atualizarStatusEncomenda, searchByCodigo } from '../services/firebase.js'
+import { getDefaultHomeRoute } from '../utils/accessControl.js'
 import { abrirReciboRetirada } from '../utils/encomendaMedia.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 
@@ -38,6 +39,7 @@ function getPoint(event, canvas) {
 
 export default function RetiradaEntrega() {
   const { codigo } = useParams()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const canvasRef = useRef(null)
@@ -228,6 +230,15 @@ export default function RetiradaEntrega() {
     await abrirReciboRetirada(encomenda)
   }
 
+  function handleVoltar() {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+
+    navigate(user ? getDefaultHomeRoute(user) : '/login')
+  }
+
   return (
     <Layout title={tituloFluxo} subtitle={subtituloFluxo} icon={<PackageIcon className="h-6 w-6" />}>
       {loading ? (
@@ -244,9 +255,16 @@ export default function RetiradaEntrega() {
       ) : (
         <div className="space-y-6">
           <section className="rounded-[1.8rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] p-5 text-white shadow-[0_18px_45px_rgba(10,45,97,0.32)]">
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-blue-100">{modo === 'entrega' ? 'Entrega' : 'Retirada'}</p>
-            <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">{encomenda.codigo}</h2>
-            <p className="mt-2 text-sm text-blue-100/90">Colete a assinatura do cliente e gere o recibo final da {modo}.</p>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.3em] text-blue-100">{modo === 'entrega' ? 'Entrega' : 'Retirada'}</p>
+                <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">{encomenda.codigo}</h2>
+                <p className="mt-2 text-sm text-blue-100/90">Colete a assinatura do cliente e gere o recibo final da {modo}.</p>
+              </div>
+              <Button type="button" variant="secondary" className="border-white/30 bg-white/10 text-white hover:bg-white/20" onClick={handleVoltar}>
+                Voltar
+              </Button>
+            </div>
           </section>
 
           <section className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">

@@ -1,6 +1,6 @@
 import Card from './Card.jsx'
 
-export default function PageShell({ title, subtitle, icon, children, actions }) {
+export default function PageShell({ title, subtitle, icon, children, actions, showEyebrow = true, titleClassName = '' }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -11,9 +11,9 @@ export default function PageShell({ title, subtitle, icon, children, actions }) 
             </div>
           ) : null}
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#1657d8]">Painel</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-[-0.03em] text-slate-950 lg:text-3xl">{title}</h2>
-          {subtitle ? <p className="mt-2 max-w-2xl text-sm text-slate-500">{subtitle}</p> : null}
+            {showEyebrow ? <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#1657d8]">Painel</p> : null}
+            <h2 className={`${showEyebrow ? 'mt-2' : ''} text-2xl font-bold tracking-[-0.03em] text-slate-950 lg:text-3xl ${titleClassName}`}>{title}</h2>
+            {subtitle ? <p className="mt-2 max-w-2xl text-sm text-slate-500">{subtitle}</p> : null}
           </div>
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
