@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
@@ -9,7 +8,7 @@ import { abrirComprovante, gerarComprovanteArquivo } from '../utils/encomendaMed
 import { gerarQRCode, montarRastreioUrl } from '../utils/gerarQRCode.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
-import { SYSTEM_NAME } from '../utils/systemConfig.js'
+import { SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
 
 const emptyCliente = {
   nome: '',
@@ -22,13 +21,39 @@ const emptyCliente = {
 const documentOptions = ['Nota fiscal', 'Valor declarado']
 const freightChargeOptions = ['Pago', 'A receber']
 
-function createFreightItem() {
+function createFreightItem(valorFrete = '') {
   return {
     id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     descricao: '',
     observacao: '',
-    valorFrete: '',
+    valorFrete: String(valorFrete ?? ''),
   }
+}
+
+function parseMoneyToCents(value) {
+  const numeric = Number(String(value || '').replace(',', '.'))
+
+  if (!Number.isFinite(numeric)) {
+    return 0
+  }
+
+  return Math.round(numeric * 100)
+}
+
+function formatCentsToInput(cents) {
+  const normalized = Math.max(0, Number(cents || 0))
+
+  if (!Number.isFinite(normalized)) {
+    return ''
+  }
+
+  const amount = normalized / 100
+
+  if (Number.isInteger(amount)) {
+    return String(amount)
+  }
+
+  return amount.toFixed(2).replace(/0$/, '').replace(/\.$/, '')
 }
 
 function normalizarItensFrete(itens = []) {
@@ -59,13 +84,6 @@ function resumirItensFrete(itens = []) {
     })
     .join(' | ')
 }
-
-const bottomNav = [
-  { to: '/nova-comanda', label: 'Novo Frete', active: true, icon: PlusIcon },
-  { to: '/encomendas', label: 'Consultar', icon: ListIcon },
-  { to: '/dashboard', label: 'Historico', icon: HistoryIcon },
-  { to: '/caixa', label: 'Mais', icon: DotsIcon },
-]
 
 function createInitialForm() {
   return {
@@ -812,10 +830,10 @@ export default function NovaComanda() {
     const itens = normalizarItensFrete(form.itens)
 
     if (itens.length) {
-      return itens.reduce((total, item) => total + Number(item.valorFrete || 0), 0)
+      return itens.reduce((total, item) => total + parseMoneyToCents(item.valorFrete || 0), 0) / 100
     }
 
-    return Number(form.valorFrete || 0)
+    return parseMoneyToCents(form.valorFrete || 0) / 100
   }, [form.itens, form.valorFrete])
   const rotasValores = useMemo(
     () => rotasValoresBase.filter((item) => linhaDisponivelNoModulo(item, 'fretes')),
@@ -1054,35 +1072,45 @@ export default function NovaComanda() {
   function updateFreightItem(itemId, field, value) {
     setForm((current) => {
       const itens = current.itens.map((item) => (item.id === itemId ? { ...item, [field]: value } : item))
+      const totalCents = normalizarItensFrete(itens).reduce((total, item) => total + parseMoneyToCents(item.valorFrete || 0), 0)
+
       return {
         ...current,
         itens,
-        valorFrete: String(
-          normalizarItensFrete(itens).reduce((total, item) => total + Number(item.valorFrete || 0), 0),
-        ),
+        valorFrete: formatCentsToInput(totalCents),
         valorFreteManual: true,
       }
     })
   }
 
   function addFreightItem() {
-    setForm((current) => ({
-      ...current,
-      itens: [...current.itens, createFreightItem()],
-      valorFreteManual: true,
-    }))
+    setForm((current) => {
+      const valorPadraoNovoItem = current.itens[0]?.valorFrete || current.valorFrete || ''
+      const novoItem = createFreightItem(valorPadraoNovoItem)
+      const proximosItens = [...current.itens, novoItem]
+
+      return {
+        ...current,
+        itens: proximosItens,
+        valorFrete: formatCentsToInput(
+          normalizarItensFrete(proximosItens)
+            .reduce((total, item) => total + parseMoneyToCents(item.valorFrete || 0), 0),
+        ),
+        valorFreteManual: true,
+      }
+    })
   }
 
   function removeFreightItem(itemId) {
     setForm((current) => {
       const itens = current.itens.filter((item) => item.id !== itemId)
       const proximosItens = itens.length ? itens : [createFreightItem()]
+      const totalCents = normalizarItensFrete(proximosItens).reduce((total, item) => total + parseMoneyToCents(item.valorFrete || 0), 0)
+
       return {
         ...current,
         itens: proximosItens,
-        valorFrete: String(
-          normalizarItensFrete(proximosItens).reduce((total, item) => total + Number(item.valorFrete || 0), 0),
-        ),
+        valorFrete: formatCentsToInput(totalCents),
         valorFreteManual: true,
       }
     })
@@ -1474,7 +1502,7 @@ export default function NovaComanda() {
   }
 
   return (
-    <Layout immersive>
+    <Layout containerClassName="max-w-full xl:max-w-[80vw]" contentClassName="max-w-none">
       <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.24),transparent_34%),linear-gradient(180deg,#eef5ff_0%,#dbeafe_100%)]">
         {compartilhamentoAberto ? (
           <div className="fixed inset-0 z-40 flex items-end justify-center bg-[#0a2d61]/55 px-4 pb-4 pt-10 backdrop-blur-[2px] sm:items-center">
@@ -1571,7 +1599,7 @@ export default function NovaComanda() {
           </div>
         ) : null}
 
-        <div className="mx-auto flex min-h-screen w-full max-w-[540px] flex-col">
+        <div className="mx-auto flex min-h-screen w-full max-w-[540px] flex-col xl:max-w-none">
           <header className="rounded-b-[2.5rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] px-5 pb-7 pt-7 text-white shadow-[0_20px_55px_rgba(7,45,103,0.42)]">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-4">
@@ -1580,7 +1608,14 @@ export default function NovaComanda() {
                 </div>
                 <div>
                   <p className="text-[2.2rem] font-extrabold uppercase leading-none tracking-[-0.04em]">Novo Frete</p>
-                  <p className="mt-2 text-[1.1rem] font-medium uppercase tracking-[0.02em] text-blue-100">{SYSTEM_NAME}</p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <img
+                      src={SYSTEM_ICON_SRC}
+                      alt={SYSTEM_NAME}
+                      className="h-10 w-10 scale-[1.15] rounded-2xl border border-white/35 bg-white object-cover p-1 shadow-[0_16px_32px_rgba(15,23,42,0.2)]"
+                    />
+                    <p className="text-[1.1rem] font-medium uppercase tracking-[0.02em] text-blue-100">{SYSTEM_NAME}</p>
+                  </div>
                 </div>
               </div>
 
@@ -1779,26 +1814,6 @@ export default function NovaComanda() {
             </form>
           </main>
 
-          <footer className="sticky bottom-0 mt-auto rounded-t-[1.4rem] border-t border-slate-200/90 bg-white/94 px-3 pb-2 pt-2 shadow-[0_-8px_20px_rgba(15,23,42,0.06)] backdrop-blur">
-            <div className="grid grid-cols-4 gap-1.5">
-              {bottomNav.map((item) => {
-                const Icon = item.icon
-
-                return (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    className="flex flex-col items-center gap-1 rounded-[1rem] px-1.5 py-1.5 text-center"
-                  >
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-[0.95rem] ${item.active ? 'bg-[#1c63e7] text-white' : 'bg-slate-100 text-slate-500'}`}>
-                      <Icon />
-                    </div>
-                    <span className={`text-[11px] font-semibold leading-none ${item.active ? 'text-[#1c63e7]' : 'text-slate-600'}`}>{item.label}</span>
-                  </Link>
-                )
-              })}
-            </div>
-          </footer>
         </div>
       </div>
     </Layout>
@@ -1952,39 +1967,6 @@ function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="m6 6 12 12M18 6 6 18" />
-    </svg>
-  )
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  )
-}
-
-function ListIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 6h10M9 12h10M9 18h10M4 6h.01M4 12h.01M4 18h.01" />
-    </svg>
-  )
-}
-
-function HistoryIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" />
-      <path d="M12 7v6l4 2" />
-    </svg>
-  )
-}
-
-function DotsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5 12h.01M12 12h.01M19 12h.01" />
     </svg>
   )
 }

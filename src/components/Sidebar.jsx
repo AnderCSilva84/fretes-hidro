@@ -15,7 +15,7 @@ import {
   SearchIcon,
   ShieldIcon,
 } from './AppIcons.jsx'
-import { SYSTEM_NAME } from '../utils/systemConfig.js'
+import { SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
 
 function SidebarSection({ title, items, onClose }) {
   if (!items.length) {
@@ -102,7 +102,14 @@ export default function Sidebar({ open = false, onClose }) {
       }`}
     >
       <div className="mb-6 rounded-[1.8rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] px-4 py-5 text-white shadow-panel">
-        <h2 className="text-2xl font-bold tracking-[-0.03em]">{SYSTEM_NAME}</h2>
+        <div className="flex items-center gap-3">
+          <img
+            src={SYSTEM_ICON_SRC}
+            alt={SYSTEM_NAME}
+            className="h-16 w-16 scale-[1.15] rounded-[1.7rem] border border-white/35 bg-white object-cover p-1.5 shadow-[0_14px_28px_rgba(15,23,42,0.22)] sm:h-[5.5rem] sm:w-[5.5rem]"
+          />
+          <h2 className="text-[2rem] font-bold tracking-[-0.03em] sm:text-5xl">{SYSTEM_NAME}</h2>
+        </div>
         <p className="mt-2 text-sm text-blue-100/85">
           Ambientes separados para fretes e passagens, com acesso por modulo.
         </p>

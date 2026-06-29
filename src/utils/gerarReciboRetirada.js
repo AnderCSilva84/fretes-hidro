@@ -1,4 +1,5 @@
 import { obterRemetenteNome } from './remetente.js'
+import { drawSystemPdfHeader } from './pdfBranding.js'
 
 function formatarDataHora(valor) {
   if (!valor) {
@@ -31,12 +32,14 @@ export async function gerarReciboRetirada(encomenda) {
   const operador = encomenda.operadorEntregaNome || encomenda.operadorEntregaEmail || '-'
   const embarcacaoNome = encomenda.embarcacaoNome || '-'
 
-  pdf.setFillColor(15, 76, 129)
-  pdf.rect(0, 0, 210, 28, 'F')
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(20)
-  pdf.text(`Recibo de ${modo === 'entrega' ? 'Entrega' : 'Retirada'}`, 14, 18)
+  await drawSystemPdfHeader(pdf, {
+    title: `Recibo de ${modo === 'entrega' ? 'Entrega' : 'Retirada'}`,
+    headerHeight: 28,
+    titleFontSize: 20,
+    titleY: 18,
+    iconY: 8,
+    iconSize: 10,
+  })
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(11)

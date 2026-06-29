@@ -1,7 +1,7 @@
 import Button from './Button.jsx'
-import { SYSTEM_NAME } from '../utils/systemConfig.js'
+import { SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
 
-export default function Header({ title, subtitle, icon, onMenuClick, onLogout, user }) {
+export default function Header({ title, icon, onMenuClick, onLogout, user }) {
   const empresaAtual = getEmpresaAtual(user)
   const nomeExibido = user?.impersonationActive
     ? user?.impersonatedBy?.nome || user?.impersonatedBy?.email || 'Superadmin'
@@ -13,10 +13,10 @@ export default function Header({ title, subtitle, icon, onMenuClick, onLogout, u
       : 'Acesso institucional'
 
   return (
-    <header className="sticky top-0 z-20 overflow-hidden rounded-b-[2.2rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] text-white shadow-[0_18px_45px_rgba(10,45,97,0.32)]">
-      <div className="px-4 pb-6 pt-5 sm:px-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
+    <header className="sticky top-0 z-20 overflow-hidden rounded-b-[2rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] text-white shadow-[0_16px_36px_rgba(10,45,97,0.26)]">
+      <div className="px-4 pb-4 pt-4 sm:px-5">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
+          <div className="flex items-start gap-3 lg:min-w-[8rem]">
             <button
               type="button"
               onClick={onMenuClick}
@@ -31,29 +31,39 @@ export default function Header({ title, subtitle, icon, onMenuClick, onLogout, u
                 {icon}
               </div>
             ) : null}
-
-            <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-blue-100">{SYSTEM_NAME}</p>
-              <h1 className="mt-2 truncate text-[1.75rem] font-bold tracking-[-0.04em] sm:text-[2rem]">{title}</h1>
-              {subtitle ? <p className="mt-2 max-w-2xl text-sm text-blue-100/90">{subtitle}</p> : null}
-              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/95 backdrop-blur">
-                <CompanyBadgeIcon />
-                <span>{empresaAtual}</span>
-              </div>
-            </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div />
+
+          <div className="flex shrink-0 items-start justify-end gap-2 lg:min-w-[12rem]">
             <div className="hidden rounded-2xl bg-white/10 px-3 py-2 text-right backdrop-blur sm:block">
               <p className="text-sm font-semibold text-white">{nomeExibido}</p>
               <p className="text-xs text-blue-100/80">{descricaoExibida}</p>
             </div>
 
             {onLogout ? (
-              <Button variant="ghost" onClick={onLogout} className="min-h-12 rounded-2xl border-white/20 bg-white/10 px-3 text-white hover:bg-white/16">
+              <Button variant="ghost" onClick={onLogout} className="min-h-12 self-start rounded-2xl border-white/20 bg-white/10 px-3 text-white hover:bg-white/16">
                 <LogoutIcon />
               </Button>
             ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 min-w-0 text-center">
+          <div className="mx-auto max-w-3xl">
+            <div className="flex items-center justify-center gap-3">
+              <img
+                src={SYSTEM_ICON_SRC}
+                alt={SYSTEM_NAME}
+                className="h-12 w-12 scale-[1.15] rounded-[1.35rem] border border-white/35 bg-white object-cover p-1.5 shadow-[0_8px_20px_rgba(15,23,42,0.16)] sm:h-[3.6rem] sm:w-[3.6rem]"
+              />
+              <p className="text-sm font-bold uppercase tracking-[0.24em] text-blue-100 sm:text-[1.45rem] sm:tracking-[0.28em]">{SYSTEM_NAME}</p>
+            </div>
+            <h1 className="text-[1.45rem] font-bold tracking-[-0.04em] sm:text-[1.75rem]">{title}</h1>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/95 backdrop-blur">
+              <CompanyBadgeIcon />
+              <span>{empresaAtual}</span>
+            </div>
           </div>
         </div>
       </div>

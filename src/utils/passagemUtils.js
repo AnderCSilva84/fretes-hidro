@@ -1,3 +1,5 @@
+import { formatDateBR } from './date.js'
+
 export function normalizeDocumento(value) {
   return String(value || '').replace(/\D/g, '')
 }
@@ -50,7 +52,7 @@ export function formatarBilheteTextoTermico(passagem) {
     `Destino: ${passagem?.destino || '-'}`,
     `Terminal origem: ${passagem?.terminalOrigem || '-'}`,
     `Terminal destino: ${passagem?.terminalDestino || '-'}`,
-    `Data: ${passagem?.dataViagem || '-'}`,
+    `Data: ${formatDateBR(passagem?.dataViagem)}`,
     `Saida: ${passagem?.horarioSaida || '-'}`,
     `Embarcacao: ${passagem?.embarcacaoNome || '-'}`,
     `Tarifa: ${passagem?.tarifaTipo || '-'}`,

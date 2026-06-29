@@ -1,7 +1,7 @@
 {
-  "name": "LUZ DA AURORA III",
-  "short_name": "Aurora III",
-  "description": "Sistema PWA para controle de fretes e encomendas",
+  "name": "NAVIA",
+  "short_name": "NAVIA",
+  "description": "Sistema PWA NAVIA para operacao de fretes e passagens",
   "lang": "pt-BR",
   "start_url": "/",
   "scope": "/",

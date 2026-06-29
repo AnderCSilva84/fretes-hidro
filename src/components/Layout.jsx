@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import useAuth from '../context/useAuth.js'
-import BottomNav from './BottomNav.jsx'
+import ConnectivityBanner from './ConnectivityBanner.jsx'
 import Header from './Header.jsx'
 import ImpersonationBanner from './ImpersonationBanner.jsx'
 import Sidebar from './Sidebar.jsx'
@@ -48,7 +48,7 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
         />
       ) : null}
 
-      <div className={`relative z-10 mx-auto flex min-h-screen w-full flex-col ${containerClassName || 'max-w-[1180px]'}`}>
+      <div className={`relative z-10 mx-auto flex min-h-screen w-full flex-col ${containerClassName || 'max-w-full xl:max-w-[80vw]'}`}>
         <Header
           title={title}
           subtitle={subtitle}
@@ -59,13 +59,12 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
         />
 
         <ImpersonationBanner user={user} onStop={stopImpersonation} />
+        <ConnectivityBanner />
 
-        <main className="flex-1 px-4 pb-32 pt-5 sm:px-5">
-          <div className={`mx-auto w-full ${contentClassName || 'max-w-[1040px]'}`}>{children}</div>
-          <SystemFooter className="mx-auto max-w-[1040px] px-2 pb-4 pt-8" />
+        <main className="flex-1 px-4 pb-8 pt-5 sm:px-5">
+          <div className={`mx-auto w-full ${contentClassName || 'max-w-none'}`}>{children}</div>
+          <SystemFooter className="mx-auto w-full px-2 pb-4 pt-8 xl:max-w-[80vw]" />
         </main>
-
-        <BottomNav />
       </div>
     </div>
   )

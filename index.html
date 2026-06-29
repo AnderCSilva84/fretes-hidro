@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/png" href="/pwa-192.png?v=navia-20260628b" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -11,9 +11,102 @@
       name="description"
       content="Sistema PWA para controle de fretes e encomendas em terminais hidroviarios do Para"
     />
-    <title>LUZ DA AURORA III</title>
+    <title>NAVIA</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        background: #072d67;
+      }
+
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        overflow: hidden;
+        background: #072d67;
+        opacity: 1;
+        transition: opacity 0.36s ease;
+      }
+
+      #boot-splash.boot-splash-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #boot-splash img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      #boot-splash::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(7, 45, 103, 0.16) 0%, rgba(7, 45, 103, 0.5) 62%, rgba(7, 45, 103, 0.78) 100%);
+      }
+
+      .boot-splash__content {
+        position: absolute;
+        inset-inline: 0;
+        bottom: 56px;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0 24px;
+        color: #fff;
+        text-align: center;
+        font-family: Arial, sans-serif;
+      }
+
+      .boot-splash__icon {
+        width: 84px;
+        height: 84px;
+        padding: 10px;
+        transform: scale(1.15);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 28px;
+        background: #ffffff;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 24px 60px rgba(2, 12, 27, 0.28);
+        object-fit: cover;
+      }
+
+      .boot-splash__name {
+        margin: 20px 0 0;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.45em;
+        text-transform: uppercase;
+        color: rgba(219, 234, 254, 0.95);
+      }
+
+      .boot-splash__message {
+        margin: 12px 0 0;
+        max-width: 320px;
+        font-size: 17px;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash" aria-hidden="true">
+      <img src="/telaInicial.jpeg" alt="" />
+      <div class="boot-splash__content">
+        <img src="/pwa-192.png?v=navia-20260628b" alt="NAVIA" class="boot-splash__icon" />
+        <p class="boot-splash__name">NAVIA</p>
+        <p class="boot-splash__message">Carregando sistema...</p>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

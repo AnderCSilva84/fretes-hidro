@@ -1,3 +1,5 @@
+import { drawSystemPdfHeader } from './pdfBranding.js'
+
 function normalizarData(valor) {
   if (!valor) {
     return null
@@ -42,12 +44,9 @@ export async function gerarCaixaPdf({ itens, dataInicial, dataFinal, totalEntrad
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
 
-  pdf.setFillColor(15, 76, 129)
-  pdf.rect(0, 0, 210, 24, 'F')
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(18)
-  pdf.text('Relatorio de Caixa', 14, 15)
+  await drawSystemPdfHeader(pdf, {
+    title: 'Relatorio de Caixa',
+  })
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(11)

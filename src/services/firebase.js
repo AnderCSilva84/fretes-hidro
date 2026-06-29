@@ -9,9 +9,12 @@ import {
   getFirestore,
   getDoc,
   increment,
+  initializeFirestore,
   limit,
   onSnapshot,
   orderBy,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   query,
   setDoc,
   startAt,
@@ -21,6 +24,7 @@ import {
   updateDoc,
   where,
   runTransaction,
+  writeBatch,
 } from 'firebase/firestore'
 import {
   createUserWithEmailAndPassword,
@@ -32,6 +36,7 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth'
+import { enqueueOfflineAction, getOfflineQueueSummary, listOfflineQueue, pruneOfflineQueue, subscribeOfflineQueue, updateOfflineAction } from './offlineQueue.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
 import { enrichUserModuleAccess, normalizeModuleAccess } from '../utils/accessControl.js'
@@ -39,6 +44,7 @@ import { DEFAULT_EMPRESA, ROOT_SUPERADMIN_EMAIL, SYSTEM_NAME, isRootSuperadminEm
 import { isTarifaAntecipada } from '../utils/tarifaUtils.js'
 import { getIndexedFieldName, normalizeSearchValue, prepareCollectionPayload } from './searchNormalization.js'
 import { calcularHorarioChegada, gerarCodigoPassagem, normalizarDocumento } from '../utils/passagemUtils.js'
+import { getWeekdayLabelBR } from '../utils/date.js'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -54,11 +60,22 @@ const isConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId)
 let app = null
 let auth = null
 let db = null
+let firestoreCacheEnabled = false
 
 if (isConfigured) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig)
   auth = getAuth(app)
-  db = getFirestore(app)
+
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    })
+    firestoreCacheEnabled = true
+  } catch {
+    db = getFirestore(app)
+  }
 }
 
 const storageKey = 'fretes-pwa-demo-store'
@@ -459,6 +476,154 @@ function mapDocs(snapshot) {
   return snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }))
 }
 
+function isBrowserOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+function shouldUseFirestoreQueuedWrites() {
+  return Boolean(isConfigured && db && firestoreCacheEnabled && isBrowserOffline())
+}
+
+export function getOfflineCapabilities() {
+  return {
+    usesFirebase: isConfigured,
+    usesLocalStore: !isConfigured,
+    localCacheEnabled: firestoreCacheEnabled,
+    supportsQueuedWrites: Boolean(isConfigured && db && firestoreCacheEnabled),
+  }
+}
+
+export function getOfflineSyncSummary() {
+  return getOfflineQueueSummary()
+}
+
+export function subscribeOfflineSync(callback) {
+  return subscribeOfflineQueue(callback)
+}
+
+function getFirstLeaderboardEntry(counter = new Map(), fallbackLabel = '-', suffixBuilder = null) {
+  const sorted = [...counter.entries()].sort((left, right) => {
+    if (right[1] !== left[1]) {
+      return right[1] - left[1]
+    }
+
+    return String(left[0]).localeCompare(String(right[0]))
+  })
+  const topEntry = sorted[0]
+
+  if (!topEntry) {
+    return {
+      label: fallbackLabel,
+      total: 0,
+    }
+  }
+
+  return {
+    label: suffixBuilder ? suffixBuilder(topEntry[0], topEntry[1]) : String(topEntry[0]),
+    total: Number(topEntry[1] || 0),
+  }
+}
+
+function normalizeTarifaTipo(value = '') {
+  return String(value || '').trim().toLowerCase()
+}
+
+const PASSAGENS_WEEKDAY_ORDER = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
+const PASSAGENS_HOUR_RANGE = Array.from({ length: 15 }, (_, index) => 5 + index)
+
+function normalizeHorarioLabel(value = '') {
+  const trimmed = String(value || '').trim()
+
+  if (!trimmed) {
+    return ''
+  }
+
+  const rawHour = Number.parseInt(trimmed.split(':')[0], 10)
+
+  if (!Number.isFinite(rawHour)) {
+    return ''
+  }
+
+  return `${String(rawHour).padStart(2, '0')}h`
+}
+
+function computePassagensAnalytics(passagens = [], viagens = []) {
+  const passagensValidas = (passagens || []).filter((item) => item.status !== 'Cancelada')
+  const passagensEmbarcadas = passagensValidas.filter((item) => item.status === 'Embarcado')
+  const passagensPendentes = passagensValidas.filter((item) => item.status !== 'Embarcado')
+  const passagensImpactandoCapacidade = passagensValidas.filter((item) => passagemImpactaCapacidade(item))
+  const gratuidades = passagensValidas.filter((item) => normalizeTarifaTipo(item.tarifaTipo) === 'gratuidade')
+  const passagensTransportadasBase = passagensEmbarcadas.length ? passagensEmbarcadas : passagensValidas
+  const horaPicoCounter = new Map(PASSAGENS_HOUR_RANGE.map((hour) => [`${String(hour).padStart(2, '0')}h`, 0]))
+  const embarcacaoCounter = new Map()
+  const weekdayCounter = new Map(PASSAGENS_WEEKDAY_ORDER.map((label) => [label, 0]))
+  const viagensMap = new Map((viagens || []).map((item) => [item.id, item]))
+
+  for (const item of passagensTransportadasBase) {
+    const hora = normalizeHorarioLabel(item.horarioSaida)
+
+    if (horaPicoCounter.has(hora)) {
+      horaPicoCounter.set(hora, Number(horaPicoCounter.get(hora) || 0) + 1)
+    }
+
+    const embarcacao = String(item.embarcacaoNome || '').trim() || 'Embarcacao nao informada'
+    embarcacaoCounter.set(embarcacao, Number(embarcacaoCounter.get(embarcacao) || 0) + 1)
+
+    const weekday = getWeekdayLabelBR(item.dataViagem, 'Sem data')
+
+    if (weekdayCounter.has(weekday)) {
+      weekdayCounter.set(weekday, Number(weekdayCounter.get(weekday) || 0) + 1)
+    }
+  }
+
+  const viagensConsideradas = (viagens || []).filter((item) => Number(item.capacidadeTotal || 0) > 0)
+  const capacidadeTotal = viagensConsideradas.reduce((total, item) => total + Number(item.capacidadeTotal || 0), 0)
+  const ocupacaoPercentual = capacidadeTotal > 0
+    ? (passagensImpactandoCapacidade.length / capacidadeTotal) * 100
+    : 0
+  const gratuidadesPercentual = passagensValidas.length > 0
+    ? (gratuidades.length / passagensValidas.length) * 100
+    : 0
+  const topEmbarcacao = getFirstLeaderboardEntry(
+    embarcacaoCounter,
+    'Sem embarcacao',
+  )
+  const weekdayDistribution = PASSAGENS_WEEKDAY_ORDER.map((label) => ({
+    label,
+    total: Number(weekdayCounter.get(label) || 0),
+  }))
+  const hourDistribution = PASSAGENS_HOUR_RANGE.map((hour) => {
+    const label = `${String(hour).padStart(2, '0')}h`
+    return {
+      label,
+      total: Number(horaPicoCounter.get(label) || 0),
+    }
+  })
+  const topWeekday = getFirstLeaderboardEntry(
+    new Map(weekdayDistribution.map((item) => [item.label, item.total])),
+    '-',
+  )
+
+  return {
+    totalPassagens: passagens.length,
+    totalViagensAtivas: (viagens || []).filter((item) => ['Aberta', 'Embarcando'].includes(item.status)).length,
+    totalEmbarcadas: passagensEmbarcadas.length,
+    totalPendentes: passagensPendentes.length,
+    horarioPico: getFirstLeaderboardEntry(horaPicoCounter, '-').label,
+    embarcacaoDestaque: topEmbarcacao.label,
+    embarcacaoDestaqueTotal: topEmbarcacao.total,
+    taxaOcupacao: ocupacaoPercentual,
+    percentualGratuidades: gratuidadesPercentual,
+    diasMaiorMovimento: topWeekday.label,
+    diasMaiorMovimentoTotal: topWeekday.total,
+    diasMaiorMovimentoChart: weekdayDistribution,
+    horariosPicoChart: hourDistribution,
+    capacidadeTotal,
+    passageirosTransportados: passagensImpactandoCapacidade.length,
+    conflitosCapacidade: [...viagensMap.values()].filter((item) => Number(item.vagasDisponiveis || 0) < 0).length,
+  }
+}
+
 function isAdminSummaryCollection(collectionName) {
   return ['clientes', 'terminais'].includes(collectionName)
 }
@@ -803,6 +968,127 @@ export async function listCollectionOnce(collectionName, { empresaId = '', empre
   }
 
   return filterItemsByEmpresa(structuredClone(readStore()[collectionName] || []), shouldRestrictByEmpresa(collectionName) ? empresaId : '', shouldRestrictByEmpresa(collectionName) ? empresaNome : '')
+}
+
+export async function syncOfflineActions() {
+  if (!isConfigured || !db) {
+    return getOfflineQueueSummary()
+  }
+
+  const queue = listOfflineQueue()
+  const pendentes = queue.filter((item) => ['pending', 'syncing', 'error'].includes(item.status))
+
+  for (const item of pendentes) {
+    updateOfflineAction(item.id, {
+      status: 'syncing',
+      conflictMessage: '',
+    })
+
+    try {
+      if (item.type === 'venda_passagem') {
+        const passagem = await buscarPassagemPorCodigo(item.payload?.passagemCodigo, {
+          empresaId: item.payload?.empresaId || '',
+          empresaNome: item.payload?.empresaNome || '',
+        })
+        const viagem = await getViagemById(item.payload?.viagemId, {
+          empresaId: item.payload?.empresaId || '',
+          empresaNome: item.payload?.empresaNome || '',
+        })
+
+        if (!passagem) {
+          updateOfflineAction(item.id, {
+            status: 'conflict',
+            conflictMessage: 'A venda nao apareceu na base sincronizada.',
+          })
+          continue
+        }
+
+        const excedeuCapacidade = item.payload?.impactaCapacidade &&
+          viagem &&
+          Number(viagem.vagasVendidas || 0) > Number(viagem.capacidadeTotal || 0)
+
+        updateOfflineAction(item.id, {
+          status: excedeuCapacidade ? 'conflict' : 'synced',
+          conflictMessage: excedeuCapacidade
+            ? 'A sincronizacao concluiu, mas a viagem ficou acima da capacidade. Revise este embarque.'
+            : '',
+        })
+        continue
+      }
+
+      if (item.type === 'cancelamento_passagem') {
+        const passagem = await buscarPassagemPorCodigo(item.payload?.passagemCodigo, {
+          empresaId: item.payload?.empresaId || '',
+          empresaNome: item.payload?.empresaNome || '',
+        })
+
+        updateOfflineAction(item.id, {
+          status: passagem?.status === 'Cancelada' ? 'synced' : 'conflict',
+          conflictMessage: passagem?.status === 'Cancelada'
+            ? ''
+            : 'O cancelamento ainda nao foi refletido na base sincronizada.',
+        })
+        continue
+      }
+
+      if (item.type === 'abertura_caixa_passagem') {
+        const viagem = await getViagemById(item.payload?.viagemId, {
+          empresaId: item.payload?.empresaId || '',
+          empresaNome: item.payload?.empresaNome || '',
+        })
+
+        updateOfflineAction(item.id, {
+          status: ['Aberta', 'Embarcando'].includes(viagem?.status) ? 'synced' : 'conflict',
+          conflictMessage: ['Aberta', 'Embarcando'].includes(viagem?.status)
+            ? ''
+            : 'A abertura do caixa nao apareceu como ativa na sincronizacao.',
+        })
+        continue
+      }
+
+      if (item.type === 'fechamento_caixa_passagem') {
+        const viagem = await getViagemById(item.payload?.viagemId, {
+          empresaId: item.payload?.empresaId || '',
+          empresaNome: item.payload?.empresaNome || '',
+        })
+
+        updateOfflineAction(item.id, {
+          status: viagem?.status === 'Fechada' ? 'synced' : 'conflict',
+          conflictMessage: viagem?.status === 'Fechada'
+            ? ''
+            : 'O fechamento do caixa nao foi confirmado na sincronizacao.',
+        })
+        continue
+      }
+
+      if (item.type === 'embarque_passagem') {
+        const passagem = await buscarPassagemPorCodigo(item.payload?.passagemCodigo, {
+          empresaId: item.payload?.empresaId || '',
+          empresaNome: item.payload?.empresaNome || '',
+        })
+
+        updateOfflineAction(item.id, {
+          status: passagem?.status === 'Embarcado' ? 'synced' : 'conflict',
+          conflictMessage: passagem?.status === 'Embarcado'
+            ? ''
+            : 'O embarque nao apareceu como confirmado na sincronizacao.',
+        })
+        continue
+      }
+
+      updateOfflineAction(item.id, {
+        status: 'synced',
+      })
+    } catch (error) {
+      updateOfflineAction(item.id, {
+        status: 'error',
+        conflictMessage: error.message || 'Falha ao sincronizar a fila offline.',
+      })
+    }
+  }
+
+  pruneOfflineQueue()
+  return getOfflineQueueSummary()
 }
 
 export async function listCollectionPage(
@@ -2419,8 +2705,42 @@ function isRegistroViagemPassagem(item) {
   return origemOperacao === 'passagens'
 }
 
+function getLocalIsoDate(value = new Date()) {
+  const date = value instanceof Date ? new Date(value) : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function isCaixaPassagemAbertoAtivo(item, referenceDate = new Date()) {
+  if (!isRegistroViagemPassagem(item) || !item?.caixaAbertoEm || item?.caixaFechadoEm || !['Aberta', 'Embarcando'].includes(item?.status)) {
+    return false
+  }
+
+  const hojeIso = getLocalIsoDate(referenceDate)
+  const dataViagem = String(item?.dataViagem || '').trim()
+
+  if (dataViagem) {
+    return dataViagem >= hojeIso
+  }
+
+  const abertura = getDateFromUnknownValue(item?.caixaAbertoEm)
+
+  if (!abertura) {
+    return false
+  }
+
+  return getLocalIsoDate(abertura) >= hojeIso
+}
+
 function isCaixaPassagemAberto(item) {
-  return isRegistroViagemPassagem(item) && Boolean(item?.caixaAbertoEm) && !item?.caixaFechadoEm && ['Aberta', 'Embarcando'].includes(item?.status)
+  return isCaixaPassagemAbertoAtivo(item)
 }
 
 function isHistoricoCaixaPassagemFechado(item) {
@@ -2753,43 +3073,41 @@ export async function listarViagensPage({
   }
 }
 
-export async function getPassagensResumo({ empresaId = '', empresaNome = '' } = {}) {
-  if (isConfigured && db) {
-    const passagensCollection = collection(db, 'passagens')
-    const viagensCollection = collection(db, 'viagens')
-    const filtrosEmpresaPassagens = empresaId ? [where('empresaId', '==', empresaId)] : []
-    const filtrosEmpresaViagens = empresaId ? [where('empresaId', '==', empresaId)] : []
-    const [totalPassagensSnapshot, totalEmbarcadasSnapshot, totalCanceladasSnapshot, totalViagensAtivasSnapshot] = await Promise.all([
-      getCountFromServer(query(passagensCollection, ...filtrosEmpresaPassagens)),
-      getCountFromServer(query(passagensCollection, ...filtrosEmpresaPassagens, where('status', '==', 'Embarcado'))),
-      getCountFromServer(query(passagensCollection, ...filtrosEmpresaPassagens, where('status', '==', 'Cancelada'))),
-      getCountFromServer(query(viagensCollection, ...filtrosEmpresaViagens, where('status', 'in', ['Aberta', 'Embarcando']))),
-    ])
+export async function getPassagensResumo({ empresaId = '', empresaNome = '', dataViagem = '', dataInicial = '', dataFinal = '' } = {}) {
+  const [passagens, viagens] = await Promise.all([
+    listCollectionOnce('passagens', { empresaId, empresaNome }),
+    listCollectionOnce('viagens', { empresaId, empresaNome }),
+  ])
 
-    const totalPassagens = Number(totalPassagensSnapshot.data().count || 0)
-    const totalEmbarcadas = Number(totalEmbarcadasSnapshot.data().count || 0)
-    const totalCanceladas = Number(totalCanceladasSnapshot.data().count || 0)
-    const totalViagensAtivas = Number(totalViagensAtivasSnapshot.data().count || 0)
+  const periodoInicial = String(dataInicial || dataViagem || '').trim()
+  const periodoFinal = String(dataFinal || dataViagem || '').trim()
+  const hasPeriodFilter = Boolean(periodoInicial || periodoFinal)
+  const isDateInPeriod = (value = '') => {
+    const normalized = String(value || '').trim()
 
-    return {
-      totalPassagens,
-      totalViagensAtivas,
-      totalEmbarcadas,
-      totalPendentes: Math.max(0, totalPassagens - totalEmbarcadas - totalCanceladas),
+    if (!normalized) {
+      return false
     }
+
+    if (periodoInicial && normalized < periodoInicial) {
+      return false
+    }
+
+    if (periodoFinal && normalized > periodoFinal) {
+      return false
+    }
+
+    return true
   }
 
-  const store = readStore()
-  const passagens = filterItemsByEmpresa(store.passagens || [], empresaId, empresaNome)
-  const viagensAtivas = filterItemsByEmpresa(store.viagens || [], empresaId, empresaNome)
-    .filter((item) => ['Aberta', 'Embarcando'].includes(item.status))
+  const passagensFiltradas = hasPeriodFilter
+    ? passagens.filter((item) => isDateInPeriod(item?.dataViagem))
+    : passagens
+  const viagensFiltradas = hasPeriodFilter
+    ? viagens.filter((item) => isDateInPeriod(item?.dataViagem))
+    : viagens
 
-  return {
-    totalPassagens: passagens.length,
-    totalViagensAtivas: viagensAtivas.length,
-    totalEmbarcadas: passagens.filter((item) => item.status === 'Embarcado').length,
-    totalPendentes: passagens.filter((item) => !['Embarcado', 'Cancelada'].includes(item.status)).length,
-  }
+  return computePassagensAnalytics(passagensFiltradas, viagensFiltradas)
 }
 
 export async function getViagemById(viagemId, { empresaId = '', empresaNome = '' } = {}) {
@@ -2868,6 +3186,18 @@ export async function abrirVendaPassagemHorario(dados) {
       atualizadoEm: serverTimestamp(),
       caixaAbertoEm: serverTimestamp(),
     }, { merge: true })
+
+    if (shouldUseFirestoreQueuedWrites()) {
+      enqueueOfflineAction({
+        type: 'abertura_caixa_passagem',
+        details: `Abertura offline do caixa da viagem ${viagemId}.`,
+        payload: {
+          viagemId,
+          empresaId: dados.empresaId || '',
+          empresaNome: dados.empresaNome || '',
+        },
+      })
+    }
   } else {
     const store = readStore()
     store.viagens = [
@@ -2910,6 +3240,18 @@ export async function encerrarVendaPassagemHorario(viagemId, actor = {}) {
       caixaFechadoPorNome: actor.operadorNome || '',
       atualizadoEm: serverTimestamp(),
     })
+
+    if (shouldUseFirestoreQueuedWrites()) {
+      enqueueOfflineAction({
+        type: 'fechamento_caixa_passagem',
+        details: `Fechamento offline do caixa da viagem ${viagemId}.`,
+        payload: {
+          viagemId,
+          empresaId: actor.empresaId || '',
+          empresaNome: actor.empresaNome || '',
+        },
+      })
+    }
   } else {
     const store = readStore()
     store.viagens = (store.viagens || []).map((item) =>
@@ -3124,10 +3466,133 @@ export async function venderPassagem(dados) {
   const qrTargetUrl = montarUrlEmbarquePassagem(codigo)
   const qrCodeDataUrl = dados.qrCodeDataUrl || ''
   const agora = new Date().toISOString()
+  const { gerarQRCode } = await import('../utils/gerarQRCode.js')
+  const qrGerado = qrCodeDataUrl || await gerarQRCode(qrTargetUrl)
 
   if (isConfigured && db) {
-    const { gerarQRCode } = await import('../utils/gerarQRCode.js')
-    const qrGerado = qrCodeDataUrl || await gerarQRCode(qrTargetUrl)
+    if (shouldUseFirestoreQueuedWrites()) {
+      const viagemAtual = await getViagemById(viagemId, { empresaId, empresaNome })
+      const viagemRef = doc(db, 'viagens', viagemId)
+      const passagemRef = doc(db, 'passagens', `passagem-${Date.now()}`)
+      const caixaRef = doc(collection(db, 'caixa'))
+      const batch = writeBatch(db)
+
+      const viagemBase = viagemAtual || montarPayloadViagemProgramada({
+        id: viagemId,
+        codigoViagem: dados.codigoViagem || gerarCodigoViagem(),
+        origemOperacao: 'passagens',
+        programacaoViagemId: dados.programacaoViagemId || '',
+        empresaId,
+        empresaNome,
+        rotaId: dados.rotaId || '',
+        origem: dados.origem || '',
+        destino: dados.destino || '',
+        terminalOrigem: dados.terminalOrigem || '',
+        terminalDestino: dados.terminalDestino || '',
+        embarcacaoId: dados.embarcacaoId || '',
+        embarcacaoNome: dados.embarcacaoNome || '',
+        dataViagem: dados.dataViagem || '',
+        horarioSaida: dados.horarioSaida || '',
+        capacidadeTotal: Number(dados.capacidadeTotal || 0),
+        valorPadrao: Number(dados.valor || dados.valorPadrao || 0),
+        duracaoMinutos: Number(dados.duracaoMinutos || 0),
+        status: 'Aberta',
+        operadorNome: dados.operadorNome || '',
+        operadorEmail: dados.operadorEmail || '',
+      })
+
+      if (!['Aberta', 'Embarcando'].includes(viagemBase.status)) {
+        throw new Error('A viagem nao esta disponivel para venda.')
+      }
+
+      if (impactaCapacidade && Number(viagemBase.vagasDisponiveis || 0) <= 0) {
+        throw new Error('Nao ha vagas disponiveis para esta viagem.')
+      }
+
+      const passagemPayload = prepareCollectionPayload('passagens', {
+        id: passagemRef.id,
+        codigo,
+        empresaId,
+        empresaNome,
+        viagemId,
+        rotaId: dados.rotaId || viagemBase.rotaId || '',
+        origem: dados.origem || viagemBase.origem || '',
+        destino: dados.destino || viagemBase.destino || '',
+        terminalOrigem: dados.terminalOrigem || viagemBase.terminalOrigem || '',
+        terminalDestino: dados.terminalDestino || viagemBase.terminalDestino || '',
+        embarcacaoId: dados.embarcacaoId || viagemBase.embarcacaoId || '',
+        embarcacaoNome: dados.embarcacaoNome || viagemBase.embarcacaoNome || '',
+        dataViagem: dados.dataViagem || viagemBase.dataViagem || '',
+        horarioSaida: dados.horarioSaida || viagemBase.horarioSaida || '',
+        passageiroId: passageiro.id,
+        passageiroNome: passageiro.nome || dados.passageiroNome || '',
+        passageiroDocumento: normalizarDocumento(passageiro.documento || dados.passageiroDocumento),
+        passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
+        tarifaTipo: dados.tarifaTipo || 'Inteira',
+        impactaCapacidade,
+        valor: Number(dados.valor || 0),
+        formaPagamento: dados.formaPagamento || 'Dinheiro',
+        status: 'Vendida',
+        qrCodeDataUrl: qrGerado,
+        bilheteUrl: qrTargetUrl,
+        operadorNome: dados.operadorNome || '',
+        operadorEmail: dados.operadorEmail || '',
+        criadoEm: agora,
+        atualizadoEm: agora,
+      })
+
+      batch.set(passagemRef, passagemPayload)
+      batch.set(caixaRef, {
+        tipo: 'entrada',
+        origem: 'Venda de passagem',
+        passagemCodigo: codigo,
+        viagemId,
+        valor: Number(dados.valor || 0),
+        formaPagamento: dados.formaPagamento || 'Dinheiro',
+        empresaId,
+        empresaNome,
+        criadoEm: agora,
+      })
+      batch.set(viagemRef, {
+        ...viagemBase,
+        atualizadoEm: agora,
+        vagasVendidas: impactaCapacidade ? Number(viagemBase.vagasVendidas || 0) + 1 : Number(viagemBase.vagasVendidas || 0),
+        vagasDisponiveis: impactaCapacidade ? Math.max(0, Number(viagemBase.vagasDisponiveis || 0) - 1) : Number(viagemBase.vagasDisponiveis || 0),
+      }, { merge: true })
+      await batch.commit()
+
+      await ajustarResumoCaixa({
+        deltaEntrada: Number(dados.valor || 0),
+        deltaRegistros: 1,
+      })
+      await registrarLogUso({
+        acao: 'passagem_vendida',
+        detalhes: `Passagem ${codigo} vendida para ${passageiro.nome || dados.passageiroNome || 'passageiro'}.`,
+        user: {
+          nome: dados.operadorNome || '',
+          email: dados.operadorEmail || '',
+          empresaId,
+          empresaNome,
+        },
+        empresaId,
+        empresaNome,
+      })
+
+      enqueueOfflineAction({
+        type: 'venda_passagem',
+        details: `Venda offline da passagem ${codigo}.`,
+        payload: {
+          passagemCodigo: codigo,
+          viagemId,
+          impactaCapacidade,
+          empresaId,
+          empresaNome,
+        },
+      })
+
+      return passagemPayload
+    }
+
     const viagemRef = doc(db, 'viagens', viagemId)
     const passagemRef = doc(collection(db, 'passagens'))
     const caixaRef = doc(collection(db, 'caixa'))
@@ -3286,8 +3751,6 @@ export async function venderPassagem(dados) {
     }
   }
 
-  const { gerarQRCode } = await import('../utils/gerarQRCode.js')
-  const qrGerado = qrCodeDataUrl || await gerarQRCode(qrTargetUrl)
   const store = readStore()
   let viagemIndex = (store.viagens || []).findIndex((item) => item.id === viagemId)
 
@@ -3624,6 +4087,68 @@ export async function cancelarPassagem(passagem, actorUser = null) {
   const impactaCapacidade = passagemImpactaCapacidade(passagem)
 
   if (isConfigured && db) {
+    if (shouldUseFirestoreQueuedWrites()) {
+      const batch = writeBatch(db)
+      const passagemRef = doc(db, 'passagens', passagem.id)
+      const caixaRef = doc(collection(db, 'caixa'))
+      const viagem = passagem.viagemId
+        ? await getViagemById(passagem.viagemId, {
+            empresaId: passagem.empresaId || '',
+            empresaNome: passagem.empresaNome || '',
+          })
+        : null
+
+      batch.update(passagemRef, {
+        status: 'Cancelada',
+        canceladoEm: timestamp,
+        atualizadoEm: timestamp,
+      })
+
+      if (impactaCapacidade && viagem) {
+        batch.set(doc(db, 'viagens', passagem.viagemId), {
+          vagasVendidas: Math.max(0, Number(viagem.vagasVendidas || 0) - 1),
+          vagasDisponiveis: Number(viagem.vagasDisponiveis || 0) + 1,
+          atualizadoEm: timestamp,
+        }, { merge: true })
+      }
+
+      batch.set(caixaRef, {
+        tipo: 'entrada',
+        origem: 'Estorno de passagem',
+        passagemCodigo: passagem.codigo,
+        viagemId: passagem.viagemId,
+        valor: -Math.abs(Number(passagem.valor || 0)),
+        formaPagamento: passagem.formaPagamento || 'Nao informado',
+        empresaId: passagem.empresaId || '',
+        empresaNome: passagem.empresaNome || '',
+        criadoEm: timestamp,
+      })
+      await batch.commit()
+
+      await ajustarResumoCaixa({
+        deltaEntrada: -Math.abs(Number(passagem.valor || 0)),
+        deltaRegistros: 1,
+      })
+      await registrarLogUso({
+        acao: 'passagem_cancelada',
+        detalhes: `Passagem ${passagem.codigo} cancelada.`,
+        user: actorUser,
+        empresaId: passagem.empresaId,
+        empresaNome: passagem.empresaNome,
+      })
+      enqueueOfflineAction({
+        type: 'cancelamento_passagem',
+        details: `Cancelamento offline da passagem ${passagem.codigo}.`,
+        payload: {
+          passagemCodigo: passagem.codigo,
+          viagemId: passagem.viagemId,
+          empresaId: passagem.empresaId || '',
+          empresaNome: passagem.empresaNome || '',
+        },
+      })
+      return { ...passagem, status: 'Cancelada', canceladoEm: timestamp, atualizadoEm: timestamp }
+    }
+
     await runTransaction(db, async (transaction) => {
       const passagemRef = doc(db, 'passagens', passagem.id)
       const viagemRef = doc(db, 'viagens', passagem.viagemId)
@@ -3782,6 +4307,19 @@ export async function confirmarEmbarque(codigo, actorUser = null) {
       empresaId: passagem.empresaId,
       empresaNome: passagem.empresaNome,
     })
+
+    if (shouldUseFirestoreQueuedWrites()) {
+      enqueueOfflineAction({
+        type: 'embarque_passagem',
+        details: `Embarque offline da passagem ${passagem.codigo}.`,
+        payload: {
+          passagemCodigo: passagem.codigo,
+          viagemId: passagem.viagemId,
+          empresaId: passagem.empresaId || '',
+          empresaNome: passagem.empresaNome || '',
+        },
+      })
+    }
 
     return {
       ...passagem,

@@ -6,6 +6,7 @@ import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import { getViagemById, listarPassagensPorViagem } from '../services/firebase.js'
+import { formatDateAndTimeBR } from '../utils/date.js'
 import { abrirManifestoViagem } from '../utils/manifestoViagemPdf.js'
 
 export default function ManifestoViagem() {
@@ -51,10 +52,10 @@ export default function ManifestoViagem() {
     <Layout title="Manifesto da viagem" subtitle="Lista operacional de passageiros por partida." icon={<ListIcon className="h-6 w-6" />}>
       <PageShell
         title="Passageiros da viagem"
-        subtitle={viagem ? `${viagem.origem} - ${viagem.destino} • ${viagem.dataViagem} ${viagem.horarioSaida || ''}` : 'Carregando viagem...'}
+        subtitle={viagem ? `${viagem.origem} - ${viagem.destino} • ${formatDateAndTimeBR(viagem.dataViagem, viagem.horarioSaida)}` : 'Carregando viagem...'}
         icon={<ListIcon className="h-6 w-6" />}
         actions={[
-          <Button key="pdf" type="button" onClick={() => abrirManifestoViagem(viagem, passagens)} disabled={!viagem}>
+          <Button key="pdf" type="button" onClick={() => abrirManifestoViagem(viagem, passagens)} disabled={!viagem} className="w-full sm:w-auto">
             Gerar PDF
           </Button>,
         ]}
@@ -74,7 +75,7 @@ export default function ManifestoViagem() {
                   <p className="font-bold text-slate-950">{item.passageiroNome}</p>
                   <p className="text-sm text-slate-500">{item.passageiroDocumento || 'Sem documento'}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-3 text-sm">
+                <div className="grid gap-2 text-sm sm:flex sm:flex-wrap sm:items-center">
                   <span className="rounded-full bg-blue-50 px-3 py-1 font-bold text-[#1657d8]">{item.status}</span>
                   <span>R$ {Number(item.valor || 0).toFixed(2)}</span>
                   <span>{item.formaPagamento || '-'}</span>

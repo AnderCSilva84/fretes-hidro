@@ -1,4 +1,6 @@
-export const SYSTEM_NAME = 'HidroSis'
+export const SYSTEM_NAME = 'NAVIA'
+export const SYSTEM_ICON_SRC = '/pwa-192.png?v=navia-20260628b'
+export const SYSTEM_SPLASH_SRC = '/telaInicial.jpeg'
 export const ROOT_SUPERADMIN_EMAIL = 'adm@acs.com'
 export const DEFAULT_EMPRESA = {
   id: 'empresa-fretes-hidro',

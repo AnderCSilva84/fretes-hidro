@@ -1,4 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom'
+import AppSplashScreen from './AppSplashScreen.jsx'
 import useAuth from '../context/useAuth.js'
 import { getDefaultHomeRoute, hasModuleAccess } from '../utils/accessControl.js'
 
@@ -6,11 +7,7 @@ export default function ProtectedRoute({ requiredPerfil = null, requiredModule =
   const { ready, user } = useAuth()
 
   if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center px-4 text-sm font-medium text-slate-500">
-        Carregando acesso...
-      </div>
-    )
+    return <AppSplashScreen message="Carregando acesso..." />
   }
 
   if (!user) {

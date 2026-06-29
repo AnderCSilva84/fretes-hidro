@@ -6,9 +6,10 @@ import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
-import { abrirVendaPassagemHorario, buscarPassageiros, cancelarPassagem, encerrarVendaPassagemHorario, gerarViagemOperacionalId, obterCaixaPassagemAberto, listarPassagensPorViagem, listarViagens, venderPassagem } from '../services/firebase.js'
+import { abrirVendaPassagemHorario, buscarPassageiros, cancelarPassagem, encerrarVendaPassagemHorario, gerarViagemOperacionalId, isCaixaPassagemAbertoAtivo, listarPassagensPorViagem, listarViagens, subscribeCollection, venderPassagem } from '../services/firebase.js'
 import { abrirBilhetePassagem } from '../utils/bilhetePassagemPdf.js'
 import { abrirJanelaImpressaoTermica } from '../utils/bilheteTermico.js'
+import { formatDateAndTimeBR, formatDateBR, formatDateTimeBR } from '../utils/date.js'
 import { abrirResumoVendaHorarioPdf } from '../utils/resumoVendaHorarioPdf.js'
 import { calcularValorTarifa, isTarifaAntecipada } from '../utils/tarifaUtils.js'
 
@@ -49,20 +50,7 @@ function parseDateTimeLocal(dataViagem, horario) {
 }
 
 function formatarDataHora(valor) {
-  if (!valor) {
-    return '-'
-  }
-
-  const data = typeof valor?.toDate === 'function' ? valor.toDate() : new Date(valor)
-
-  if (Number.isNaN(data.getTime())) {
-    return '-'
-  }
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(data)
+  return formatDateTimeBR(valor)
 }
 
 function formatarValorLista(item) {
@@ -160,6 +148,14 @@ function linhaDisponivelNoModulo(linha, modulo) {
   return exibirEm === 'ambos' || exibirEm === modulo
 }
 
+function itemPertenceEmpresa(item, empresaId = '') {
+  if (!empresaId) {
+    return true
+  }
+
+  return String(item?.empresaId || '') === String(empresaId)
+}
+
 function countGratuidadesOfertadas(passagens = []) {
   return passagens.reduce((total, item) => {
     const normalizedTarifa = String(item?.tarifaTipo || '').trim().toLowerCase()
@@ -236,6 +232,7 @@ export default function NovaPassagem() {
     }
   })
   const searchTimeoutRef = useRef(0)
+  const ultimaViagemHistoricoRef = useRef('')
 
   const viagens = useMemo(() => viagensBase, [viagensBase])
   const rotas = useMemo(
@@ -350,93 +347,107 @@ export default function NovaPassagem() {
   const gratuidadePrevista = percentualGratuidade > 0
     ? Math.ceil((capacidadeEmbarcacao * percentualGratuidade) / 100)
     : 0
+  const passagensCaixaConsideradas = useMemo(() => {
+    if (!caixaAbertoEmpresa?.id) {
+      return []
+    }
+
+    if (caixaAbertoEmpresa.id === viagemSelecionada?.id) {
+      return passagensEmbarque
+    }
+
+    return passagensCaixaAberto
+  }, [caixaAbertoEmpresa?.id, passagensCaixaAberto, passagensEmbarque, viagemSelecionada?.id])
   const gratuidadeOfertada = useMemo(
     () => countGratuidadesOfertadas(passagensEmbarque),
     [passagensEmbarque],
   )
   const gratuidadeSaldoReferencia = Math.max(0, gratuidadePrevista - gratuidadeOfertada)
   const totalVendidoCaixaAberto = useMemo(
-    () => sumPassagensVendidas(passagensCaixaAberto),
-    [passagensCaixaAberto],
+    () => sumPassagensVendidas(passagensCaixaConsideradas),
+    [passagensCaixaConsideradas],
   )
   const quantidadeVendidaCaixaAberto = useMemo(
-    () => countPassagensVendidas(passagensCaixaAberto),
-    [passagensCaixaAberto],
+    () => countPassagensVendidas(passagensCaixaConsideradas),
+    [passagensCaixaConsideradas],
   )
+  const totalVendaAtual = useMemo(
+    () => (form.itensVenda || []).reduce((total, item) => total + getTarifaLineTotal(item), 0),
+    [form.itensVenda],
+  )
+  const podeConcluirVenda = Boolean(!busy && viagemSelecionada && viagemAberta)
 
   useEffect(() => {
     window.sessionStorage.setItem('novaPassagemForm', JSON.stringify(form))
   }, [form])
 
   useEffect(() => {
-    let active = true
-
-    async function carregarCaixaAbertoEmpresa() {
-      const item = await obterCaixaPassagemAberto({ empresaId, empresaNome })
-
-      if (active) {
-        setCaixaAbertoEmpresa(item)
-      }
-    }
-
-    void carregarCaixaAbertoEmpresa()
-
-    return () => {
-      active = false
-    }
-  }, [empresaId, empresaNome])
-
-  useEffect(() => {
     window.sessionStorage.setItem('novaPassagemResultado', JSON.stringify(resultado))
   }, [resultado])
 
   useEffect(() => {
-    let active = true
+    const unsubscribe = subscribeCollection('viagens', (allItems) => {
+      const filtradas = (allItems || []).filter((item) => itemPertenceEmpresa(item, empresaId))
 
-    async function carregarPassagensEmbarque() {
-      if (!viagemSelecionada?.id) {
-        setPassagensEmbarque([])
-        setHistoricoLimite(10)
-        return
-      }
+      setViagensBase(
+        !form.dataViagem
+          ? []
+          : filtradas
+            .filter((item) => item.dataViagem === form.dataViagem)
+            .sort((left, right) => String(left.horarioSaida || '').localeCompare(String(right.horarioSaida || ''))),
+      )
 
-      const items = await listarPassagensPorViagem(viagemSelecionada.id, { empresaId, empresaNome })
+      const caixaAbertoAtual = filtradas
+        .filter((item) => isCaixaPassagemAbertoAtivo(item))
+        .sort((left, right) => String(right.caixaAbertoEm || '').localeCompare(String(left.caixaAbertoEm || '')))[0] || null
 
-      if (active) {
-        setPassagensEmbarque(items)
-        setHistoricoLimite(10)
-      }
-    }
-
-    void carregarPassagensEmbarque()
+      setCaixaAbertoEmpresa(caixaAbertoAtual)
+    })
 
     return () => {
-      active = false
+      if (typeof unsubscribe === 'function') {
+        unsubscribe()
+      }
     }
-  }, [empresaId, empresaNome, viagemSelecionada?.id])
+  }, [empresaId, form.dataViagem])
 
   useEffect(() => {
-    let active = true
+    const unsubscribe = subscribeCollection('passagens', (allItems) => {
+      const filtradas = (allItems || []).filter((item) => itemPertenceEmpresa(item, empresaId))
+      const viagemHistoricoId = viagemSelecionada?.id || ''
 
-    async function carregarPassagensCaixaAberto() {
+      if (ultimaViagemHistoricoRef.current !== viagemHistoricoId) {
+        ultimaViagemHistoricoRef.current = viagemHistoricoId
+        setHistoricoLimite(10)
+      }
+
+      if (!viagemHistoricoId) {
+        setPassagensEmbarque([])
+      } else {
+        setPassagensEmbarque(
+          filtradas
+            .filter((item) => item.viagemId === viagemHistoricoId)
+            .sort((left, right) => String(right.criadoEm || '').localeCompare(String(left.criadoEm || ''))),
+        )
+      }
+
       if (!caixaAbertoEmpresa?.id) {
         setPassagensCaixaAberto([])
-        return
+      } else {
+        setPassagensCaixaAberto(
+          filtradas
+            .filter((item) => item.viagemId === caixaAbertoEmpresa.id)
+            .sort((left, right) => String(right.criadoEm || '').localeCompare(String(left.criadoEm || ''))),
+        )
       }
-
-      const items = await listarPassagensPorViagem(caixaAbertoEmpresa.id, { empresaId, empresaNome })
-
-      if (active) {
-        setPassagensCaixaAberto(items)
-      }
-    }
-
-    void carregarPassagensCaixaAberto()
+    })
 
     return () => {
-      active = false
+      if (typeof unsubscribe === 'function') {
+        unsubscribe()
+      }
     }
-  }, [caixaAbertoEmpresa?.id, empresaId, empresaNome])
+  }, [caixaAbertoEmpresa?.id, empresaId, viagemSelecionada?.id])
 
   function handlePassageiroNomeChange(value) {
     setForm((current) => ({ ...current, passageiroNome: value }))
@@ -691,7 +702,7 @@ export default function NovaPassagem() {
       {
         const passagensAtualizadas = await listarPassagensPorViagem(viagemSelecionada.id, { empresaId, empresaNome })
         setPassagensEmbarque(passagensAtualizadas)
-        if (caixaAbertoEmpresa?.id === viagemSelecionada.id || !caixaAbertoEmpresa) {
+        if (caixaAbertoEmpresa?.id === viagemSelecionada.id) {
           setPassagensCaixaAberto(passagensAtualizadas)
         }
       }
@@ -717,37 +728,17 @@ export default function NovaPassagem() {
     }
   }
 
-  useEffect(() => {
-    let active = true
-
-    async function carregarPorData() {
-      if (!form.dataViagem) {
-        setViagensBase([])
-        return
-      }
-
-      const items = await listarViagens({ dataViagem: form.dataViagem, empresaId, empresaNome })
-
-      if (active) {
-        setViagensBase(items)
-      }
-    }
-
-    void carregarPorData()
-
-    return () => {
-      active = false
-      window.clearTimeout(searchTimeoutRef.current)
-    }
-  }, [empresaId, empresaNome, form.dataViagem])
+  useEffect(() => () => {
+    window.clearTimeout(searchTimeoutRef.current)
+  }, [])
 
   return (
     <Layout
       title="Nova passagem"
       subtitle="Venda de bilhete com linha, embarcacao e horario informados manualmente."
       icon={<BoatIcon className="h-6 w-6" />}
-      containerClassName="max-w-[80vw]"
-      contentClassName="max-w-[80vw]"
+      containerClassName="max-w-full xl:max-w-[80vw]"
+      contentClassName="max-w-none"
     >
       <div className="space-y-6">
         <div className="rounded-[1.8rem] border border-blue-100 bg-[linear-gradient(135deg,#f8fbff_0%,#ffffff_55%,#eef5ff_100%)] p-5 shadow-[0_16px_40px_rgba(28,99,231,0.08)]">
@@ -768,7 +759,7 @@ export default function NovaPassagem() {
                 {viagemSelecionada ? (
                   <div className="rounded-full border border-blue-100 bg-white/80 px-4 py-2">
                     <span className="text-sm font-bold tracking-[-0.02em] text-slate-950">
-                      {`${viagemSelecionada.origem || '-'} - ${viagemSelecionada.destino || '-'} | ${viagemSelecionada.dataViagem || '-'} ${viagemSelecionada.horarioSaida || ''}`.trim()}
+                      {`${viagemSelecionada.origem || '-'} - ${viagemSelecionada.destino || '-'} | ${formatDateAndTimeBR(viagemSelecionada.dataViagem, viagemSelecionada.horarioSaida)}`.trim()}
                     </span>
                   </div>
                 ) : null}
@@ -781,26 +772,26 @@ export default function NovaPassagem() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button type="button" variant="success" onClick={handleAbrirCaixa} disabled={busy || !viagemSelecionada || viagemAberta || caixaAbertoEmOutroHorario} className="min-w-[14rem]">
+            <div className="grid gap-3 sm:flex sm:flex-row">
+              <Button type="button" variant="success" onClick={handleAbrirCaixa} disabled={busy || !viagemSelecionada || viagemAberta || caixaAbertoEmOutroHorario} className="w-full sm:min-w-[14rem]">
                 Abertura do caixa
               </Button>
-              <Button type="button" variant="danger" onClick={handleEncerrarCaixa} disabled={busy || !viagemSelecionada || !viagemAberta} className="min-w-[14rem]">
+              <Button type="button" variant="danger" onClick={handleEncerrarCaixa} disabled={busy || !viagemSelecionada || !viagemAberta} className="w-full sm:min-w-[14rem]">
                 Fechamento do caixa
               </Button>
             </div>
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.7fr)]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
           {caixaAbertoEmpresa ? (
-            <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-900">
-              <p className="font-semibold">Caixa em aberto para esta empresa.</p>
-              <p className="mt-1">
-                {`${caixaAbertoEmpresa.origem || '-'} - ${caixaAbertoEmpresa.destino || '-'} | ${caixaAbertoEmpresa.embarcacaoNome || '-'} | ${caixaAbertoEmpresa.dataViagem || '-'} ${caixaAbertoEmpresa.horarioSaida || ''}`.trim()}
+            <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-5 py-5 text-emerald-900">
+              <p className="text-lg font-bold">Caixa em aberto para esta empresa.</p>
+              <p className="mt-2 text-base leading-7">
+                {`${caixaAbertoEmpresa.origem || '-'} - ${caixaAbertoEmpresa.destino || '-'} | ${caixaAbertoEmpresa.embarcacaoNome || '-'} | ${formatDateAndTimeBR(caixaAbertoEmpresa.dataViagem, caixaAbertoEmpresa.horarioSaida)}`.trim()}
               </p>
-              {caixaAbertoEmOutroHorario ? <p className="mt-1">Feche esse caixa antes de abrir outro horario.</p> : null}
-              {caixaAbertoNoHorarioSelecionado ? <p className="mt-1">O horario selecionado ja esta com o caixa aberto.</p> : null}
+              {caixaAbertoEmOutroHorario ? <p className="mt-2 text-base font-medium leading-7">Feche esse caixa antes de abrir outro horario.</p> : null}
+              {caixaAbertoNoHorarioSelecionado ? <p className="mt-2 text-base font-medium leading-7">O horario selecionado ja esta com o caixa aberto.</p> : null}
             </div>
           ) : (
             <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
@@ -820,85 +811,73 @@ export default function NovaPassagem() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.9fr_0.95fr]">
-        <PageShell title="Venda de passagem" subtitle="" showEyebrow={false}>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.02fr)_minmax(22rem,0.98fr)]">
+        <PageShell title="Venda de passagem" showEyebrow={false}>
           <div className="space-y-4">
-            <Input
-              label="Data da viagem"
-              type="date"
-              value={form.dataViagem}
-              onChange={(event) => setForm((current) => ({ ...current, dataViagem: event.target.value }))}
-            />
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <Input
+                label="Data da viagem"
+                type="date"
+                value={form.dataViagem}
+                onChange={(event) => setForm((current) => ({ ...current, dataViagem: event.target.value }))}
+              />
 
-            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-              <span>Linha</span>
-              <select
-                value={form.rotaId}
-                onChange={(event) => {
-                  const rota = rotas.find((item) => item.id === event.target.value) || null
-                  setForm((current) => ({
-                    ...current,
-                    rotaId: event.target.value,
-                    embarcacaoId: '',
-                    horarioSaida: '',
-                    itensVenda: (current.itensVenda || []).map((itemTarifa) => ({
-                      ...itemTarifa,
-                      valor: calcularValorTarifa(itemTarifa.tarifaTipo, Number(rota?.valor || 0)),
-                    })),
-                  }))
-                }}
-                className="min-h-10 rounded-[1.1rem] border border-blue-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
-              >
-                <option value="">Selecione a linha</option>
-                {rotas.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.origem} - {item.destino}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 md:col-span-2">
+                <span>Linha</span>
+                <select
+                  value={form.rotaId}
+                  onChange={(event) => {
+                    const rota = rotas.find((item) => item.id === event.target.value) || null
+                    setForm((current) => ({
+                      ...current,
+                      rotaId: event.target.value,
+                      embarcacaoId: '',
+                      horarioSaida: '',
+                      itensVenda: (current.itensVenda || []).map((itemTarifa) => ({
+                        ...itemTarifa,
+                        valor: calcularValorTarifa(itemTarifa.tarifaTipo, Number(rota?.valor || 0)),
+                      })),
+                    }))
+                  }}
+                  className="min-h-10 rounded-[1.1rem] border border-blue-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
+                >
+                  <option value="">Selecione a linha</option>
+                  {rotas.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.origem} - {item.destino}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-              <span>Embarcacao</span>
-              <select
-                value={form.embarcacaoId}
-                onChange={(event) => setForm((current) => ({ ...current, embarcacaoId: event.target.value }))}
-                disabled={!rotaSelecionada}
-                className="min-h-10 rounded-[1.1rem] border border-blue-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100"
-              >
-                <option value="">{rotaSelecionada ? 'Selecione a embarcacao' : 'Selecione a linha primeiro'}</option>
-                {embarcacoesDisponiveis.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.nome}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 xl:col-span-2">
+                <span>Embarcacao</span>
+                <select
+                  value={form.embarcacaoId}
+                  onChange={(event) => setForm((current) => ({ ...current, embarcacaoId: event.target.value }))}
+                  disabled={!rotaSelecionada}
+                  className="min-h-10 rounded-[1.1rem] border border-blue-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100"
+                >
+                  <option value="">{rotaSelecionada ? 'Selecione a embarcacao' : 'Selecione a linha primeiro'}</option>
+                  {embarcacoesDisponiveis.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <Input
-              label="Horario de saida"
-              type="time"
-              value={form.horarioSaida}
-              onChange={(event) => setForm((current) => ({ ...current, horarioSaida: event.target.value }))}
-              required
-            />
-
-            {embarcacaoSelecionada ? (
-              <div className="rounded-[1.4rem] border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-slate-700">
-                <p>
-                  Capacidade da embarcacao selecionada: <span className="font-semibold text-slate-950">{capacidadeEmbarcacao || 0}</span>
-                </p>
-                <p className="mt-2">
-                  Referencia de gratuidade nesta linha: <span className="font-semibold text-slate-950">{percentualGratuidade.toFixed(2)}%</span>
-                </p>
-                <p className="mt-1">
-                  Referencia calculada: <span className="font-semibold text-slate-950">{gratuidadePrevista}</span> | Ja ofertadas: <span className="font-semibold text-slate-950">{gratuidadeOfertada}</span> | Saldo de referencia: <span className="font-semibold text-slate-950">{gratuidadeSaldoReferencia}</span>
-                </p>
-              </div>
-            ) : null}
+              <Input
+                label="Horario de saida"
+                type="time"
+                value={form.horarioSaida}
+                onChange={(event) => setForm((current) => ({ ...current, horarioSaida: event.target.value }))}
+                required
+              />
+            </div>
 
             <div className="rounded-[1.5rem] border border-blue-100 bg-white p-4">
-              <div className="flex items-start gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-[#1657d8]">
                   <PeopleIcon className="h-6 w-6" />
                 </span>
@@ -934,18 +913,18 @@ export default function NovaPassagem() {
             </div>
 
             <div className="space-y-3 rounded-[1.5rem] border border-blue-100 bg-blue-50/50 p-4">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">Tarifas da venda</p>
                   <p className="text-xs text-slate-500">Adicione varias passagens na mesma compra.</p>
                 </div>
-                <Button type="button" variant="secondary" onClick={adicionarTarifaItem}>
+                <Button type="button" variant="secondary" onClick={adicionarTarifaItem} className="w-full sm:w-auto">
                   + Passagem
                 </Button>
               </div>
 
               {(form.itensVenda || []).map((itemVenda, index) => (
-                <div key={itemVenda.id} className="grid gap-3 rounded-[1.3rem] border border-blue-100 bg-white p-3 md:grid-cols-[auto_1.1fr_0.8fr_auto]">
+                <div key={itemVenda.id} className="grid gap-3 rounded-[1.3rem] border border-blue-100 bg-white p-3 md:grid-cols-[auto_minmax(0,1fr)_minmax(0,0.8fr)] xl:grid-cols-[auto_minmax(0,1.1fr)_minmax(0,0.8fr)_auto]">
                   <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                     <span>Qtd.</span>
                     <div className="flex min-h-10 items-center gap-2 rounded-[1.1rem] border border-blue-200 bg-white px-2">
@@ -997,12 +976,12 @@ export default function NovaPassagem() {
                     onChange={(event) => atualizarTarifaItem(itemVenda.id, { valor: event.target.value })}
                   />
 
-                  <div className="flex items-end">
-                    <div className="flex flex-col gap-2">
-                      <Button type="button" variant="ghost" onClick={() => removerTarifaItem(itemVenda.id)} disabled={(form.itensVenda || []).length <= 1}>
+                  <div className="flex items-end md:col-span-3 xl:col-span-1">
+                    <div className="flex w-full flex-col gap-2 xl:items-end">
+                      <Button type="button" variant="ghost" onClick={() => removerTarifaItem(itemVenda.id)} disabled={(form.itensVenda || []).length <= 1} className="w-full xl:w-auto">
                         Remover
                       </Button>
-                      <span className="text-right text-xs font-semibold text-slate-500">
+                      <span className="text-left text-xs font-semibold text-slate-500 xl:text-right">
                         Total: R$ {getTarifaLineTotal(itemVenda).toFixed(2)}
                       </span>
                     </div>
@@ -1035,7 +1014,7 @@ export default function NovaPassagem() {
             {error ? <div className="rounded-[1.4rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">{error}</div> : null}
             {success ? <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{success}</div> : null}
 
-            <div className="flex flex-wrap gap-3">
+            <div className="hidden flex-wrap gap-3 md:flex">
               <Button type="button" variant="ghost" onClick={() => {
                 window.sessionStorage.removeItem('novaPassagemForm')
                 window.sessionStorage.removeItem('novaPassagemResultado')
@@ -1048,24 +1027,63 @@ export default function NovaPassagem() {
               }} disabled={busy}>
                 Limpar tela
               </Button>
-              <Button type="button" onClick={() => concluirVenda('save')} disabled={busy || !viagemSelecionada || !viagemAberta}>
-                {busy ? 'Vendendo...' : 'Vender passagem'}
+              <Button type="button" onClick={() => concluirVenda('print')} disabled={!podeConcluirVenda}>
+                {busy ? 'Vendendo...' : 'Vender e imprimir'}
               </Button>
-              <Button type="button" variant="secondary" onClick={() => concluirVenda('print')} disabled={busy || !viagemSelecionada || !viagemAberta}>
-                Vender e imprimir
+              <Button type="button" variant="secondary" onClick={() => concluirVenda('save')} disabled={!podeConcluirVenda}>
+                Registrar sem imprimir
               </Button>
-              <Button type="button" variant="ghost" onClick={() => concluirVenda('pdf')} disabled={busy || !viagemSelecionada || !viagemAberta}>
+              <Button type="button" variant="ghost" onClick={() => concluirVenda('pdf')} disabled={!podeConcluirVenda}>
                 Vender e gerar PDF
               </Button>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-blue-100 bg-slate-950 p-4 text-white md:hidden">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-200">Fechamento da venda</p>
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-sm text-blue-100/90">Total atual</p>
+                  <p className="text-3xl font-bold tracking-[-0.04em]">R$ {totalVendaAtual.toFixed(2)}</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${podeConcluirVenda ? 'bg-emerald-400/20 text-emerald-100' : 'bg-white/10 text-blue-100'}`}>
+                  {viagemAberta ? 'Pronto para vender' : 'Abra o caixa'}
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2">
+                <Button type="button" onClick={() => concluirVenda('print')} disabled={!podeConcluirVenda} className="w-full">
+                  {busy ? 'Vendendo...' : 'Vender e imprimir'}
+                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="secondary" onClick={() => concluirVenda('save')} disabled={!podeConcluirVenda} className="w-full">
+                    Registrar
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => concluirVenda('pdf')} disabled={!podeConcluirVenda} className="w-full border-white/20 bg-white/10 text-white hover:bg-white/16">
+                    Gerar PDF
+                  </Button>
+                </div>
+                <Button type="button" variant="ghost" onClick={() => {
+                  window.sessionStorage.removeItem('novaPassagemForm')
+                  window.sessionStorage.removeItem('novaPassagemResultado')
+                  setForm(initialForm)
+                  setResultado(null)
+                  setSugestoes([])
+                  setViagensBase([])
+                  setError('')
+                  setSuccess('')
+                }} disabled={busy} className="w-full border-white/15 bg-white/10 text-white hover:bg-white/16">
+                  Limpar tela
+                </Button>
+              </div>
             </div>
           </div>
         </PageShell>
 
-        <PageShell title="Resumo da saida" subtitle="" showEyebrow={false} titleClassName="whitespace-nowrap text-[2rem]">
-          <div className="space-y-4">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <PageShell title="Resumo da saida" showEyebrow={false} titleClassName="text-[1.7rem] sm:text-[2rem]">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Resumo label="Origem" value={viagemSelecionada?.origem || '-'} />
             <Resumo label="Destino" value={viagemSelecionada?.destino || '-'} />
-            <Resumo label="Data" value={viagemSelecionada?.dataViagem || '-'} />
+            <Resumo label="Data" value={formatDateBR(viagemSelecionada?.dataViagem)} />
             <Resumo label="Horario" value={viagemSelecionada?.horarioSaida || '-'} />
             <Resumo label="Caixa" value={statusCaixaLabel} />
             <Resumo label="Aberto em" value={formatarDataHora(viagemSelecionada?.caixaAbertoEm)} />
@@ -1074,26 +1092,20 @@ export default function NovaPassagem() {
             <Resumo label="Vagas disponiveis" value={String(viagemSelecionada?.vagasDisponiveis ?? '-')} />
             <Resumo label="Passagens vendidas" value={String(viagemSelecionada?.vagasVendidas ?? '-')} />
             <Resumo label="Gratuidade da linha" value={`${percentualGratuidade.toFixed(2)}%`} />
-            <Resumo label="Referencia de gratuidades" value={String(gratuidadePrevista)} />
-            <Resumo label="Gratuidades ofertadas" value={String(gratuidadeOfertada)} />
             <Resumo label="Saldo de referencia" value={String(gratuidadeSaldoReferencia)} />
             <Resumo label="Tarifa base" value={`R$ ${Number(viagemSelecionada?.valorPadrao || 0).toFixed(2)}`} />
-            <Resumo
-              label="Total da venda"
-              value={`R$ ${Number((form.itensVenda || []).reduce((total, item) => total + getTarifaLineTotal(item), 0)).toFixed(2)}`}
-            />
-
+            <Resumo label="Total da venda" value={`R$ ${totalVendaAtual.toFixed(2)}`} />
           </div>
         </PageShell>
 
-        <PageShell title="Historico do embarque" subtitle="" showEyebrow={false} titleClassName="whitespace-nowrap text-[2rem]">
+        <PageShell title="Historico do embarque" showEyebrow={false} titleClassName="text-[1.7rem] sm:text-[2rem]">
           <div className="space-y-2">
             {passagensEmbarqueVisiveis.length === 0 ? (
               <p className="text-sm text-slate-500">Nenhuma passagem vendida neste embarque ainda.</p>
             ) : (
               passagensEmbarqueVisiveis.map((item) => (
                 <div key={item.id} className={`rounded-2xl border px-3 py-3 ${getTarifaHistoricoStyle(item.tarifaTipo)}`}>
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{item.tarifaTipo || 'Tarifa'}</p>
                       <p className="text-xs text-slate-500">{item.codigo || '-'}{item.passageiroNome ? ` • ${item.passageiroNome}` : ''}</p>
@@ -1102,14 +1114,14 @@ export default function NovaPassagem() {
                     <p className="text-sm font-bold text-[#1657d8]">{formatarValorLista(item)}</p>
                   </div>
 
-                  <div className="mt-2 flex items-center gap-1">
-                    <Button type="button" variant="ghost" className="min-h-5 px-1.5 py-0 text-[9px] leading-none" onClick={() => abrirJanelaImpressaoTermica(item)}>
+                  <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+                    <Button type="button" variant="ghost" className="min-h-10 px-3 py-2 text-[11px] leading-none" onClick={() => abrirJanelaImpressaoTermica(item)}>
                       Imprimir termico
                     </Button>
                     <Button
                       type="button"
                       variant="danger"
-                      className="min-h-5 px-1.5 py-0 text-[9px] leading-none"
+                      className="min-h-10 px-3 py-2 text-[11px] leading-none"
                       onClick={() => handleEstornarPassagem(item)}
                       disabled={busyHistoricoId === item.id || item.status === 'Cancelada' || item.status === 'Embarcado'}
                     >
@@ -1129,6 +1141,7 @@ export default function NovaPassagem() {
             ) : null}
           </div>
         </PageShell>
+        </div>
       </div>
       </div>
     </Layout>

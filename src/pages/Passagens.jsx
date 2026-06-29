@@ -10,26 +10,14 @@ import useCollectionOnce from '../hooks/useCollectionOnce.js'
 import { buscarPassagens, cancelarPassagem, deleteHistoricoCaixaPassagem, listarHistoricoCaixasPassagem, listarPassagensPage, obterResumoVendaPassagemHorario } from '../services/firebase.js'
 import { abrirBilhetePassagem } from '../utils/bilhetePassagemPdf.js'
 import { abrirJanelaImpressaoTermica } from '../utils/bilheteTermico.js'
+import { formatDateAndTimeBR, formatDateTimeBR } from '../utils/date.js'
 import { abrirResumoVendaHorarioPdf } from '../utils/resumoVendaHorarioPdf.js'
 import { isRootSuperadminUser } from '../utils/systemConfig.js'
 
 const PAGE_SIZE = 12
 
 function formatarDataHora(valor) {
-  if (!valor) {
-    return '-'
-  }
-
-  const data = typeof valor?.toDate === 'function' ? valor.toDate() : new Date(valor)
-
-  if (Number.isNaN(data.getTime())) {
-    return '-'
-  }
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(data)
+  return formatDateTimeBR(valor)
 }
 
 export default function Passagens() {
@@ -285,7 +273,7 @@ export default function Passagens() {
                 <div>
                   <p className="text-lg font-bold text-slate-950">{item.embarcacaoNome || 'Embarcacao nao informada'}</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    {item.origem || '-'} - {item.destino || '-'} | {item.dataViagem || '-'} {item.horarioSaida || ''}
+                    {item.origem || '-'} - {item.destino || '-'} | {formatDateAndTimeBR(item.dataViagem, item.horarioSaida)}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
                     Abertura: {formatarDataHora(item.caixaAbertoEm)} | Fechamento: {formatarDataHora(item.caixaFechadoEm)}
@@ -297,12 +285,12 @@ export default function Passagens() {
                   }`}>
                     {item.status || 'Aberta'}
                   </span>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" onClick={() => handleExportarHistorico(item.id)} disabled={exportingHistoryId === item.id}>
+                  <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
+                    <Button type="button" variant="secondary" onClick={() => handleExportarHistorico(item.id)} disabled={exportingHistoryId === item.id} className="w-full sm:w-auto">
                       {exportingHistoryId === item.id ? 'Gerando PDF...' : 'Exportar PDF'}
                     </Button>
                     {isRoot ? (
-                      <Button type="button" variant="danger" onClick={() => handleExcluirHistorico(item)} disabled={exportingHistoryId === item.id}>
+                      <Button type="button" variant="danger" onClick={() => handleExcluirHistorico(item)} disabled={exportingHistoryId === item.id} className="w-full sm:w-auto">
                         {exportingHistoryId === item.id ? 'Excluindo...' : 'Excluir historico'}
                       </Button>
                     ) : null}
@@ -321,7 +309,7 @@ export default function Passagens() {
       </PageShell>
 
       <PageShell title="Bilhetes vendidos" subtitle="Busca sob demanda e pagina reduzida para economizar leituras." icon={<ListIcon className="h-6 w-6" />}>
-        <form className="mb-5 grid gap-3 rounded-[1.5rem] border border-blue-100 bg-blue-50/60 p-4 md:grid-cols-4" onSubmit={aplicarFiltros}>
+        <form className="mb-5 grid gap-3 rounded-[1.5rem] border border-blue-100 bg-blue-50/60 p-4 sm:grid-cols-2 xl:grid-cols-4" onSubmit={aplicarFiltros}>
           <Input
             label="Busca"
             value={filtros.searchTerm}
@@ -364,7 +352,7 @@ export default function Passagens() {
               ))}
             </select>
           </label>
-          <div className="md:col-span-4 flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 sm:col-span-2 xl:col-span-4">
             <Button type="submit" disabled={loading}>
               {loading ? 'Buscando...' : 'Aplicar filtros'}
             </Button>
@@ -401,16 +389,16 @@ export default function Passagens() {
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" onClick={() => abrirBilhetePassagem(item)}>
+              <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
+                <Button type="button" variant="secondary" onClick={() => abrirBilhetePassagem(item)} className="w-full sm:w-auto">
                   Abrir PDF
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => abrirJanelaImpressaoTermica(item)}>
+                <Button type="button" variant="ghost" onClick={() => abrirJanelaImpressaoTermica(item)} className="w-full sm:w-auto">
                   Reimprimir
                 </Button>
                 <Link
                   to={`/manifesto/${item.viagemId}`}
-                  className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-[#1657d8]"
+                  className="inline-flex min-h-12 w-full items-center justify-center rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-[#1657d8] sm:w-auto"
                 >
                   Manifesto
                 </Link>
@@ -419,6 +407,7 @@ export default function Passagens() {
                   variant="danger"
                   onClick={() => handleCancelar(item)}
                   disabled={busyId === item.id || item.status === 'Cancelada' || item.status === 'Embarcado'}
+                  className="w-full sm:w-auto"
                 >
                   {busyId === item.id ? 'Cancelando...' : 'Cancelar'}
                 </Button>

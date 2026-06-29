@@ -1,5 +1,5 @@
 import { obterRemetenteNome } from './remetente.js'
-import { SYSTEM_NAME } from './systemConfig.js'
+import { drawSystemPdfHeader, SYSTEM_NAME } from './pdfBranding.js'
 
 function formatarDataHoraRegistro(valor) {
   if (!valor) {
@@ -33,12 +33,16 @@ export async function gerarEtiqueta(encomenda, qrCodeDataUrl) {
   const horarioRegistro = formatarDataHoraRegistro(encomenda.criadoEm)
   const embarcacaoNome = encomenda.embarcacaoNome || '-'
 
-  pdf.setFillColor(15, 76, 129)
-  pdf.rect(0, 0, 100, 18, 'F')
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(14)
-  pdf.text(SYSTEM_NAME, 10, 11)
+  await drawSystemPdfHeader(pdf, {
+    title: SYSTEM_NAME,
+    headerHeight: 18,
+    titleFontSize: 14,
+    titleX: 23,
+    titleY: 11,
+    iconX: 10,
+    iconY: 4,
+    iconSize: 8,
+  })
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(11)

@@ -1,15 +1,12 @@
-import { SYSTEM_NAME } from './systemConfig.js'
+import { drawSystemPdfHeader, SYSTEM_NAME } from './pdfBranding.js'
 
 export async function gerarManifestoViagemPDF(viagem, passagens) {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
 
-  pdf.setFillColor(15, 76, 129)
-  pdf.rect(0, 0, 210, 24, 'F')
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(18)
-  pdf.text(`Manifesto de Viagem - ${SYSTEM_NAME}`, 14, 15)
+  await drawSystemPdfHeader(pdf, {
+    title: `Manifesto de Viagem - ${SYSTEM_NAME}`,
+  })
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFont('helvetica', 'normal')

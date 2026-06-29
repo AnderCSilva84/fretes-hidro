@@ -5,7 +5,7 @@ import Card from '../components/Card.jsx'
 import Input from '../components/Input.jsx'
 import SystemFooter from '../components/SystemFooter.jsx'
 import useAuth from '../context/useAuth.js'
-import { ROOT_SUPERADMIN_EMAIL, SYSTEM_NAME } from '../utils/systemConfig.js'
+import { ROOT_SUPERADMIN_EMAIL, SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
 
 export default function Login() {
   const { login, ready, user } = useAuth()
@@ -41,7 +41,14 @@ export default function Login() {
         <Card className="w-full max-w-md p-8 lg:p-10">
           <form className="space-y-5" onSubmit={handleSubmit}>
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-[#1657d8]">{SYSTEM_NAME}</p>
+              <div className="flex items-center gap-3">
+                <img
+                  src={SYSTEM_ICON_SRC}
+                  alt={SYSTEM_NAME}
+                  className="h-11 w-11 scale-[1.15] rounded-2xl border border-[#d5e5ff] bg-white object-cover p-1 shadow-[0_18px_38px_rgba(22,87,216,0.14)]"
+                />
+                <p className="text-xs uppercase tracking-[0.35em] text-[#1657d8]">{SYSTEM_NAME}</p>
+              </div>
               <h2 className="mt-4 text-3xl font-bold text-slate-900">Entrar no sistema</h2>
               <p className="mt-2 text-sm text-slate-500">
                 Use suas credenciais do Firebase ou os acessos criados pelo superadmin em modo demonstracao.

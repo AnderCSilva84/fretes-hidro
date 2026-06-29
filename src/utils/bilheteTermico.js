@@ -83,14 +83,19 @@ export function gerarHTMLBilheteTermico(passagem) {
 }
 
 export function abrirJanelaImpressaoTermica(passagem) {
-  const popup = window.open('', '_blank', 'noopener,noreferrer,width=420,height=760')
+  const html = gerarHTMLBilheteTermico(passagem)
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const htmlUrl = URL.createObjectURL(blob)
+  const popup = window.open(htmlUrl, '_blank', 'width=420,height=760')
 
   if (!popup) {
+    URL.revokeObjectURL(htmlUrl)
     throw new Error('Nao foi possivel abrir a janela de impressao.')
   }
 
-  popup.document.open()
-  popup.document.write(gerarHTMLBilheteTermico(passagem))
-  popup.document.close()
+  window.setTimeout(() => {
+    URL.revokeObjectURL(htmlUrl)
+  }, 60000)
+
   return popup
 }

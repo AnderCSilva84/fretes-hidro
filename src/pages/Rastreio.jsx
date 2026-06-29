@@ -11,7 +11,7 @@ import { abrirComprovante, abrirReciboRetirada } from '../utils/encomendaMedia.j
 import { getEncomendaStatusPresentation } from '../utils/encomendaStatus.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
-import { SYSTEM_NAME } from '../utils/systemConfig.js'
+import { SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
 
 function formatarData(valor) {
   if (!valor) {
@@ -206,7 +206,14 @@ export default function Rastreio() {
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.35em] text-blue-100">Rastreio publico</p>
-                <h1 className="mt-2 text-3xl font-bold tracking-[-0.04em] lg:text-4xl">{SYSTEM_NAME}</h1>
+                <div className="mt-2 flex items-center gap-3">
+                  <img
+                    src={SYSTEM_ICON_SRC}
+                    alt={SYSTEM_NAME}
+                    className="h-12 w-12 scale-[1.15] rounded-2xl border border-white/35 bg-white object-cover p-1 shadow-[0_16px_34px_rgba(15,23,42,0.2)]"
+                  />
+                  <h1 className="text-3xl font-bold tracking-[-0.04em] lg:text-4xl">{SYSTEM_NAME}</h1>
+                </div>
                 <p className="mt-2 text-blue-100/90">Consulta publica por codigo da encomenda.</p>
               </div>
             </div>

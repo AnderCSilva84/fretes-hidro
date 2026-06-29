@@ -9,7 +9,7 @@ export default function ImpersonationBanner({ user, onStop }) {
   const responsavel = user?.impersonatedBy?.nome || user?.impersonatedBy?.email || 'Superadmin'
 
   return (
-    <div className="mx-auto w-full max-w-[1040px] px-4 pt-4 sm:px-5">
+    <div className="mx-auto w-full px-4 pt-4 sm:px-5 xl:max-w-[80vw]">
       <div className="rounded-[1.6rem] border border-amber-300 bg-[linear-gradient(135deg,#fff7d6_0%,#ffe9b8_100%)] px-4 py-4 text-slate-900 shadow-[0_16px_36px_rgba(180,120,20,0.16)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>

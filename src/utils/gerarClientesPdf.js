@@ -1,13 +1,12 @@
+import { drawSystemPdfHeader } from './pdfBranding.js'
+
 export async function gerarClientesPdf(clientes) {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
 
-  pdf.setFillColor(15, 76, 129)
-  pdf.rect(0, 0, 210, 24, 'F')
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(18)
-  pdf.text('Relatorio de Clientes', 14, 15)
+  await drawSystemPdfHeader(pdf, {
+    title: 'Relatorio de Clientes',
+  })
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFont('helvetica', 'normal')

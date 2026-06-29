@@ -1,30 +1,32 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import AppSplashScreen from '../components/AppSplashScreen.jsx'
 import ProtectedRoute from '../components/ProtectedRoute.jsx'
 import RouteErrorBoundary from '../components/RouteErrorBoundary.jsx'
 import useAuth from '../context/useAuth.js'
 import { getDefaultHomeRoute } from '../utils/accessControl.js'
+import { lazyWithRetry } from '../utils/lazyWithRetry.js'
 
-const Login = lazy(() => import('../pages/Login.jsx'))
-const Rastreio = lazy(() => import('../pages/Rastreio.jsx'))
-const Caixa = lazy(() => import('../pages/Caixa.jsx'))
-const Clientes = lazy(() => import('../pages/Clientes.jsx'))
-const Dashboard = lazy(() => import('../pages/Dashboard.jsx'))
-const Embarcacoes = lazy(() => import('../pages/Embarcacoes.jsx'))
-const Encomendas = lazy(() => import('../pages/Encomendas.jsx'))
-const Empresas = lazy(() => import('../pages/Empresas.jsx'))
-const LogsUso = lazy(() => import('../pages/LogsUso.jsx'))
-const ManifestoViagem = lazy(() => import('../pages/ManifestoViagem.jsx'))
-const NovaComanda = lazy(() => import('../pages/NovaComanda.jsx'))
-const NovaPassagem = lazy(() => import('../pages/NovaPassagem.jsx'))
-const Passagens = lazy(() => import('../pages/Passagens.jsx'))
-const Passageiros = lazy(() => import('../pages/Passageiros.jsx'))
-const RetiradaEntrega = lazy(() => import('../pages/RetiradaEntrega.jsx'))
-const RotasValores = lazy(() => import('../pages/RotasValores.jsx'))
-const ScannerEmbarque = lazy(() => import('../pages/ScannerEmbarque.jsx'))
-const ScannerRetirada = lazy(() => import('../pages/ScannerRetirada.jsx'))
-const Terminais = lazy(() => import('../pages/Terminais.jsx'))
-const Usuarios = lazy(() => import('../pages/Usuarios.jsx'))
+const Login = lazyWithRetry(() => import('../pages/Login.jsx'), 'login')
+const Rastreio = lazyWithRetry(() => import('../pages/Rastreio.jsx'), 'rastreio')
+const Caixa = lazyWithRetry(() => import('../pages/Caixa.jsx'), 'caixa')
+const Clientes = lazyWithRetry(() => import('../pages/Clientes.jsx'), 'clientes')
+const Dashboard = lazyWithRetry(() => import('../pages/Dashboard.jsx'), 'dashboard')
+const Embarcacoes = lazyWithRetry(() => import('../pages/Embarcacoes.jsx'), 'embarcacoes')
+const Encomendas = lazyWithRetry(() => import('../pages/Encomendas.jsx'), 'encomendas')
+const Empresas = lazyWithRetry(() => import('../pages/Empresas.jsx'), 'empresas')
+const LogsUso = lazyWithRetry(() => import('../pages/LogsUso.jsx'), 'logs-uso')
+const ManifestoViagem = lazyWithRetry(() => import('../pages/ManifestoViagem.jsx'), 'manifesto-viagem')
+const NovaComanda = lazyWithRetry(() => import('../pages/NovaComanda.jsx'), 'nova-comanda')
+const NovaPassagem = lazyWithRetry(() => import('../pages/NovaPassagem.jsx'), 'nova-passagem')
+const Passagens = lazyWithRetry(() => import('../pages/Passagens.jsx'), 'passagens')
+const Passageiros = lazyWithRetry(() => import('../pages/Passageiros.jsx'), 'passageiros')
+const RetiradaEntrega = lazyWithRetry(() => import('../pages/RetiradaEntrega.jsx'), 'retirada-entrega')
+const RotasValores = lazyWithRetry(() => import('../pages/RotasValores.jsx'), 'rotas-valores')
+const ScannerEmbarque = lazyWithRetry(() => import('../pages/ScannerEmbarque.jsx'), 'scanner-embarque')
+const ScannerRetirada = lazyWithRetry(() => import('../pages/ScannerRetirada.jsx'), 'scanner-retirada')
+const Terminais = lazyWithRetry(() => import('../pages/Terminais.jsx'), 'terminais')
+const Usuarios = lazyWithRetry(() => import('../pages/Usuarios.jsx'), 'usuarios')
 
 function HomeRedirect() {
   const { user } = useAuth()
@@ -36,9 +38,7 @@ export default function AppRoutes() {
     <RouteErrorBoundary>
       <Suspense
         fallback={
-          <div className="flex min-h-screen items-center justify-center px-4 text-sm text-slate-500">
-            Carregando modulo...
-          </div>
+          <AppSplashScreen message="Carregando modulo..." />
         }
       >
         <Routes>

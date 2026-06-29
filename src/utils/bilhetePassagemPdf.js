@@ -1,24 +1,23 @@
-import { SYSTEM_NAME } from './systemConfig.js'
+import { drawSystemPdfHeader, SYSTEM_NAME } from './pdfBranding.js'
+import { formatDateAndTimeBR } from './date.js'
 
 function formatarDataHora(dataViagem, horarioSaida) {
-  if (!dataViagem) {
-    return horarioSaida || '-'
-  }
-
-  const data = dataViagem.includes('/') ? dataViagem : dataViagem.split('-').reverse().join('/')
-  return `${data} ${horarioSaida || ''}`.trim()
+  return formatDateAndTimeBR(dataViagem, horarioSaida)
 }
 
 export async function gerarBilhetePassagemPDF(passagem) {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
 
-  pdf.setFillColor(15, 76, 129)
-  pdf.rect(0, 0, 210, 28, 'F')
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(20)
-  pdf.text(SYSTEM_NAME, 14, 18)
+  await drawSystemPdfHeader(pdf, {
+    title: SYSTEM_NAME,
+    headerHeight: 28,
+    titleFontSize: 20,
+    titleX: 28,
+    titleY: 18,
+    iconY: 8,
+    iconSize: 10,
+  })
 
   pdf.setTextColor(15, 23, 42)
   pdf.setFontSize(16)
