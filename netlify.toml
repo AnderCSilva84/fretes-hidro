@@ -5,6 +5,14 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions]
+  directory = "functions"
+
+[[redirects]]
+  from = "/api/nfe/extract-from-image"
+  to = "/.netlify/functions/nfe-extract-from-image"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -393,7 +393,18 @@ export default function Passagens() {
                 <Button type="button" variant="secondary" onClick={() => abrirBilhetePassagem(item)} className="w-full sm:w-auto">
                   Abrir PDF
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => abrirJanelaImpressaoTermica(item)} className="w-full sm:w-auto">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={async () => {
+                    try {
+                      await abrirJanelaImpressaoTermica(item)
+                    } catch (runtimeError) {
+                      setErroTela(runtimeError.message || 'Nao foi possivel abrir a impressao termica.')
+                    }
+                  }}
+                  className="w-full sm:w-auto"
+                >
                   Reimprimir
                 </Button>
                 <Link

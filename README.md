@@ -41,6 +41,20 @@ npm run dev
 npm run build
 ```
 
+## Impressao termica silenciosa no Windows
+
+Para operar com impressao termica direta na impressora padrao do Windows:
+
+```bash
+npm run thermal-agent
+```
+
+O PWA tenta primeiro o helper local em `http://127.0.0.1:18181` e, se ele nao estiver disponivel, volta para `window.print()`.
+
+Detalhes de configuracao e contrato do helper:
+
+- [docs/impressao-termica-windows.md](./docs/impressao-termica-windows.md)
+
 ## Firebase
 
 O projeto já vem preparado para Firebase Hosting com `firebase.json` e `.firebaserc`.

@@ -6,9 +6,9 @@ import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
-import { abrirVendaPassagemHorario, buscarPassageiros, cancelarPassagem, encerrarVendaPassagemHorario, gerarViagemOperacionalId, isCaixaPassagemAbertoAtivo, listarPassagensPorViagem, listarViagens, subscribeCollection, venderPassagem } from '../services/firebase.js'
+import { abrirVendaPassagemHorario, buscarPassageiros, cancelarPassagem, encerrarVendaPassagemHorario, gerarViagemOperacionalId, isCaixaPassagemAbertoAtivo, listarPassagensPorViagem, listarViagens, prepararPassageiroPassagem, subscribeCollection, venderPassagem } from '../services/firebase.js'
 import { abrirBilhetePassagem } from '../utils/bilhetePassagemPdf.js'
-import { abrirJanelaImpressaoTermica } from '../utils/bilheteTermico.js'
+import { abrirJanelaImpressaoTermica, imprimirPassagensTermicas } from '../utils/bilheteTermico.js'
 import { formatDateAndTimeBR, formatDateBR, formatDateTimeBR } from '../utils/date.js'
 import { abrirResumoVendaHorarioPdf } from '../utils/resumoVendaHorarioPdf.js'
 import { calcularValorTarifa, isTarifaAntecipada } from '../utils/tarifaUtils.js'
@@ -34,6 +34,40 @@ const initialForm = {
   itensVenda: [createTarifaItem('inicial')],
 }
 
+function persistSessionJson(key, value) {
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(value))
+  } catch (error) {
+    console.warn(`Nao foi possivel persistir ${key} na sessao.`, error)
+  }
+}
+
+function compactarPassagemResultado(passagem) {
+  if (!passagem || typeof passagem !== 'object') {
+    return passagem
+  }
+
+  const { qrCodeDataUrl, ...restante } = passagem
+  return {
+    ...restante,
+    qrCodeDataUrl: qrCodeDataUrl ? '[omitido-na-sessao]' : '',
+  }
+}
+
+function compactarResultadoVenda(resultado) {
+  if (!resultado || typeof resultado !== 'object') {
+    return resultado
+  }
+
+  return {
+    ...resultado,
+    ultima: compactarPassagemResultado(resultado.ultima),
+    passagens: Array.isArray(resultado.passagens)
+      ? resultado.passagens.map(compactarPassagemResultado)
+      : [],
+  }
+}
+
 function parseDateTimeLocal(dataViagem, horario) {
   if (!dataViagem || !horario) {
     return null
@@ -47,6 +81,24 @@ function parseDateTimeLocal(dataViagem, horario) {
   }
 
   return new Date(ano, mes - 1, dia, hora, minuto, 0, 0)
+}
+
+function mergePassagensSemNovaLeitura(atuais, novas) {
+  const mapa = new Map()
+
+  for (const item of atuais || []) {
+    if (item?.id) {
+      mapa.set(item.id, item)
+    }
+  }
+
+  for (const item of novas || []) {
+    if (item?.id) {
+      mapa.set(item.id, item)
+    }
+  }
+
+  return [...mapa.values()]
 }
 
 function formatarDataHora(valor) {
@@ -378,11 +430,11 @@ export default function NovaPassagem() {
   const podeConcluirVenda = Boolean(!busy && viagemSelecionada && viagemAberta)
 
   useEffect(() => {
-    window.sessionStorage.setItem('novaPassagemForm', JSON.stringify(form))
+    persistSessionJson('novaPassagemForm', form)
   }, [form])
 
   useEffect(() => {
-    window.sessionStorage.setItem('novaPassagemResultado', JSON.stringify(resultado))
+    persistSessionJson('novaPassagemResultado', compactarResultadoVenda(resultado))
   }, [resultado])
 
   useEffect(() => {
@@ -644,6 +696,15 @@ export default function NovaPassagem() {
 
     try {
       const passagensVendidas = []
+      const passageiroBase = await prepararPassageiroPassagem({
+        empresaId,
+        empresaNome,
+        nome: form.passageiroNome,
+        telefone: form.passageiroTelefone,
+        documento: form.passageiroDocumento,
+        email: form.passageiroEmail,
+        tipo: 'Adulto',
+      })
 
       for (const itemVenda of form.itensVenda || []) {
         const quantidade = Math.max(1, Number(itemVenda.quantidade || 1))
@@ -665,6 +726,7 @@ export default function NovaPassagem() {
             horarioSaida: viagemSelecionada.horarioSaida,
             capacidadeTotal: viagemSelecionada.capacidadeTotal,
             duracaoMinutos: viagemSelecionada.duracaoMinutos || 0,
+            passageiro: passageiroBase,
             passageiroNome: form.passageiroNome,
             passageiroDocumento: form.passageiroDocumento,
             passageiroTelefone: form.passageiroTelefone,
@@ -699,12 +761,9 @@ export default function NovaPassagem() {
       }))
       setSugestoes([])
       await recarregarViagens(selectedDate)
-      {
-        const passagensAtualizadas = await listarPassagensPorViagem(viagemSelecionada.id, { empresaId, empresaNome })
-        setPassagensEmbarque(passagensAtualizadas)
-        if (caixaAbertoEmpresa?.id === viagemSelecionada.id) {
-          setPassagensCaixaAberto(passagensAtualizadas)
-        }
+      setPassagensEmbarque((current) => mergePassagensSemNovaLeitura(current, passagensVendidas))
+      if (caixaAbertoEmpresa?.id === viagemSelecionada.id) {
+        setPassagensCaixaAberto((current) => mergePassagensSemNovaLeitura(current, passagensVendidas))
       }
       setSuccess(
         tarifaAntecipada
@@ -713,7 +772,7 @@ export default function NovaPassagem() {
       )
 
       if (mode === 'print') {
-        passagensVendidas.forEach((item) => abrirJanelaImpressaoTermica(item))
+        await imprimirPassagensTermicas(passagensVendidas)
       }
 
       if (mode === 'pdf') {
@@ -1115,7 +1174,18 @@ export default function NovaPassagem() {
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
-                    <Button type="button" variant="ghost" className="min-h-10 px-3 py-2 text-[11px] leading-none" onClick={() => abrirJanelaImpressaoTermica(item)}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-10 px-3 py-2 text-[11px] leading-none"
+                      onClick={async () => {
+                        try {
+                          await abrirJanelaImpressaoTermica(item)
+                        } catch (runtimeError) {
+                          setError(runtimeError.message || 'Nao foi possivel abrir a impressao termica.')
+                        }
+                      }}
+                    >
                       Imprimir termico
                     </Button>
                     <Button

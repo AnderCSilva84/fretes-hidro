@@ -42,22 +42,26 @@ export async function gerarCodigoPassagem(getLastCode) {
 }
 
 export function formatarBilheteTextoTermico(passagem) {
+  const origem = String(passagem?.origem || '-').trim()
+  const destino = String(passagem?.destino || '-').trim()
+  const terminalOrigem = String(passagem?.terminalOrigem || '').trim()
+  const terminalDestino = String(passagem?.terminalDestino || '').trim()
+
   return [
+    'NAVIA',
     'BILHETE DE PASSAGEM',
     '',
     `Codigo: ${passagem?.codigo || '-'}`,
+    `${origem} -> ${destino}`,
+    `Saida: ${formatDateBR(passagem?.dataViagem)} ${passagem?.horarioSaida || '-'}`,
     `Passageiro: ${passagem?.passageiroNome || '-'}`,
     `Documento: ${passagem?.passageiroDocumento || '-'}`,
-    `Origem: ${passagem?.origem || '-'}`,
-    `Destino: ${passagem?.destino || '-'}`,
-    `Terminal origem: ${passagem?.terminalOrigem || '-'}`,
-    `Terminal destino: ${passagem?.terminalDestino || '-'}`,
-    `Data: ${formatDateBR(passagem?.dataViagem)}`,
-    `Saida: ${passagem?.horarioSaida || '-'}`,
+    terminalOrigem ? `T. origem: ${terminalOrigem}` : null,
+    terminalDestino ? `T. destino: ${terminalDestino}` : null,
     `Embarcacao: ${passagem?.embarcacaoNome || '-'}`,
     `Tarifa: ${passagem?.tarifaTipo || '-'}`,
     `Valor: R$ ${Number(passagem?.valor || 0).toFixed(2)}`,
     `Pagamento: ${passagem?.formaPagamento || '-'}`,
     `Status: ${passagem?.status || '-'}`,
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }

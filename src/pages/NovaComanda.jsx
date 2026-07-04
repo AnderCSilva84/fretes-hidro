@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Button from '../components/Button.jsx'
 import Layout from '../components/Layout.jsx'
+import NfeCaptureCard from '../components/NfeCaptureCard.jsx'
 import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
+import { extractNfeFromImage } from '../services/nfeAutofill.js'
 import { addCollectionDocument, criarEncomenda, gerarCodigoEncomenda, searchCollectionByField, updateCollectionDocument } from '../services/firebase.js'
+import { applyNfeAutofillToForm, listFilledNfeFields } from '../utils/nfeAutofill.js'
 import { abrirComprovante, gerarComprovanteArquivo } from '../utils/encomendaMedia.js'
 import { gerarQRCode, montarRastreioUrl } from '../utils/gerarQRCode.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
@@ -109,6 +112,7 @@ function createInitialForm() {
     possuiNotaFiscal: false,
     valorDeclaradoAtivo: true,
     valorMercadoria: '',
+    quantidadeVolumes: '',
     freteCobranca: 'A receber',
     valorFrete: '',
     valorFreteManual: false,
@@ -459,11 +463,13 @@ function PersonCard({
   value,
   subtitle,
   searchValue,
+  documentValue = '',
   phoneValue,
   emailValue,
   loading,
   suggestions,
   onSearchChange,
+  onDocumentChange = null,
   onPhoneChange,
   onEmailChange,
   onPick,
@@ -492,6 +498,14 @@ function PersonCard({
           />
 
           <div className="grid gap-3 sm:grid-cols-2">
+            {onDocumentChange ? (
+              <input
+                value={documentValue}
+                onChange={(event) => onDocumentChange(event.target.value)}
+                placeholder="CPF/CNPJ"
+                className="h-10 w-full min-w-0 max-w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-3 text-[0.85rem] font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100 sm:col-span-2"
+              />
+            ) : null}
             <input
               value={phoneValue}
               onChange={(event) => onPhoneChange(event.target.value)}
@@ -538,6 +552,49 @@ function PersonCard({
             <PlusSmallIcon />
             Novo {title}
           </button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function CargoDetailsCard({ descricao, quantidadeVolumes, peso, onChange }) {
+  return (
+    <Card className="px-6 py-6">
+      <div className="w-full">
+        <CardHeader icon={<NoteIcon />} title="Carga">
+          <p className="mt-2 text-sm text-slate-500">Confira so a descricao, os volumes e o peso que vieram da nota.</p>
+        </CardHeader>
+
+        <div className="mx-auto mt-4 grid w-full max-w-[30rem] gap-3">
+          <textarea
+            value={descricao}
+            onChange={(event) => onChange('descricao', event.target.value)}
+            rows={3}
+            placeholder="Descricao resumida da carga"
+            className="w-full resize-none rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-3 text-[0.95rem] font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100"
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={quantidadeVolumes}
+              onChange={(event) => onChange('quantidadeVolumes', event.target.value)}
+              placeholder="Volumes"
+              className="h-11 w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-3 text-[0.95rem] font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100"
+            />
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={peso}
+              onChange={(event) => onChange('peso', event.target.value)}
+              placeholder="Peso (kg)"
+              className="h-11 w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-3 text-[0.95rem] font-medium text-slate-900 outline-none transition focus:border-[#1c63e7] focus:bg-white focus:ring-4 focus:ring-blue-100"
+            />
+          </div>
         </div>
       </div>
     </Card>
@@ -720,10 +777,13 @@ function SummaryBlock({ form, total, horarioSaidaEfetivo, previsaoChegada, embar
         <SummaryItem label="Destino" value={form.terminalDestino || 'Nao informado'} />
         <SummaryItem label="Destinatario" value={form.destinatarioNome || 'Nao informado'} />
         <SummaryItem label="Itens" value={String(totalItens)} />
+        <SummaryItem label="Volumes" value={String(form.quantidadeVolumes || form.quantidade || 'Nao informado')} />
+        <SummaryItem label="Peso" value={form.peso ? `${form.peso} kg` : 'Nao informado'} />
         <SummaryItem label="Tipo de documento" value={documentType} />
         <SummaryItem label="Frete" value={form.freteCobranca} pill />
         <SummaryItem label="Valor mercadoria" value={formatCurrency(form.valorMercadoria)} />
         <SummaryItem label="Valor frete" value={formatCurrency(total)} valueClassName="text-[#1657d8]" />
+        <SummaryItem label="Descricao" value={form.descricao || 'Nao informada'} />
       </div>
     </section>
   )
@@ -817,6 +877,11 @@ export default function NovaComanda() {
   const [qrCode, setQrCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [erroOperacao, setErroOperacao] = useState('')
+  const [nfeLoading, setNfeLoading] = useState(false)
+  const [nfeErro, setNfeErro] = useState('')
+  const [nfeResumo, setNfeResumo] = useState(null)
+  const [nfeCamposPreenchidos, setNfeCamposPreenchidos] = useState([])
+  const [nfeModelo, setNfeModelo] = useState('')
   const [compartilhamentoAberto, setCompartilhamentoAberto] = useState(false)
   const [compartilhando, setCompartilhando] = useState(false)
   const clientesBuscaCacheRef = useRef(new Map())
@@ -1065,6 +1130,14 @@ export default function NovaComanda() {
         }
       }
 
+      if (key === 'quantidadeVolumes') {
+        return {
+          ...current,
+          quantidadeVolumes: value,
+          quantidade: value,
+        }
+      }
+
       return { ...current, [key]: value }
     })
   }
@@ -1151,7 +1224,35 @@ export default function NovaComanda() {
     setQrCode('')
     setQuickAddTarget(null)
     setQuickAddForm(emptyCliente)
+    setNfeErro('')
+    setNfeResumo(null)
+    setNfeCamposPreenchidos([])
+    setNfeModelo('')
     setCompartilhamentoAberto(false)
+  }
+
+  async function handleNfeFileSelect(file) {
+    setNfeLoading(true)
+    setNfeErro('')
+
+    try {
+      const extracted = await extractNfeFromImage(file, {
+        empresaId,
+        operadorId: user?.uid || user?.id || user?.email || '',
+      })
+      const campos = listFilledNfeFields(extracted.data)
+
+      setForm((current) => applyNfeAutofillToForm(current, extracted.data))
+      setNfeResumo(extracted.data)
+      setNfeCamposPreenchidos(campos)
+      setNfeModelo(extracted.model || '')
+      setErroOperacao('')
+    } catch (error) {
+      reportRuntimeError('NovaComanda.handleNfeFileSelect', error, { empresaId, empresaNome })
+      setNfeErro(error?.message || 'Nao foi possivel ler a nota fiscal agora.')
+    } finally {
+      setNfeLoading(false)
+    }
   }
 
   function pickCliente(target, cliente) {
@@ -1371,7 +1472,11 @@ export default function NovaComanda() {
         descricao: resumirItensFrete(itensFrete) || form.descricao || form.tipoMercadoria,
         itens: itensFrete,
         quantidade: itensFrete.length || form.quantidade,
+        quantidadeVolumes: form.quantidadeVolumes || form.quantidade,
         valorFrete: totalFrete,
+        nfeLeituraOrigem: nfeResumo ? 'foto' : '',
+        nfeLidaEm: nfeResumo ? new Date().toISOString() : '',
+        nfeResumoExtraido: nfeResumo,
       })
 
       setResultado(created)
@@ -1646,16 +1751,27 @@ export default function NovaComanda() {
                 onChange={updateForm}
               />
 
+              <NfeCaptureCard
+                busy={nfeLoading}
+                error={nfeErro}
+                onFileSelect={handleNfeFileSelect}
+                lastFields={nfeCamposPreenchidos}
+                extractedData={nfeResumo}
+                model={nfeModelo}
+              />
+
               <PersonCard
                 title="Remetente"
                 value={form.remetenteNome}
                 subtitle={form.remetenteDocumento || 'Opcional. Se vazio, vai como Entregador'}
                 searchValue={form.remetenteNome}
+                documentValue={form.remetenteDocumento}
                 phoneValue={form.remetenteTelefone}
                 emailValue={form.remetenteEmail}
                 loading={remetenteLoading}
                 suggestions={remetenteSugestoes}
                 onSearchChange={(value) => updateForm('remetenteNome', value)}
+                onDocumentChange={(value) => updateForm('remetenteDocumento', value)}
                 onPhoneChange={(value) => updateForm('remetenteTelefone', value)}
                 onEmailChange={(value) => updateForm('remetenteEmail', value)}
                 onPick={(cliente) => pickCliente('remetente', cliente)}
@@ -1715,6 +1831,13 @@ export default function NovaComanda() {
                 onChange={(value) => updateForm('valorMercadoria', value)}
                 large
                 icon={<MoneyIcon />}
+              />
+
+              <CargoDetailsCard
+                descricao={form.descricao}
+                quantidadeVolumes={form.quantidadeVolumes}
+                peso={form.peso}
+                onChange={updateForm}
               />
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1.08fr_0.92fr]">

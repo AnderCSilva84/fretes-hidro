@@ -1774,12 +1774,18 @@ export async function criarEncomenda(dados) {
     terminalDestino: dados.terminalDestino || '',
     freteCobranca: dados.freteCobranca || 'A receber',
     possuiNotaFiscal: Boolean(dados.possuiNotaFiscal),
+    remetenteDocumento: dados.remetenteDocumento || '',
     valorDeclarado: Number(dados.valorDeclarado || 0),
     tipoMercadoria: dados.tipoMercadoria || '',
     descricao: dados.descricao || '',
     itens,
     quantidade: Number(dados.quantidade || 0),
+    quantidadeVolumes: Number(dados.quantidadeVolumes || dados.quantidade || 0),
     peso: Number(dados.peso || 0),
+    valorMercadoria: Number(dados.valorMercadoria || 0),
+    nfeLeituraOrigem: dados.nfeLeituraOrigem || '',
+    nfeLidaEm: dados.nfeLidaEm || '',
+    nfeResumoExtraido: dados.nfeResumoExtraido || null,
     valorFrete: valorFreteCalculado,
     taxa: Number(dados.taxa || 0),
     valorTotal,
@@ -3448,20 +3454,26 @@ async function encontrarOuCriarPassageiro(dados) {
   return criarPassageiro(dados)
 }
 
+export async function prepararPassageiroPassagem(dados) {
+  return encontrarOuCriarPassageiro(dados)
+}
+
 export async function venderPassagem(dados) {
   const empresaId = dados.empresaId || ''
   const empresaNome = dados.empresaNome || ''
   const viagemId = dados.viagemId || gerarViagemOperacionalId(dados)
   const impactaCapacidade = passagemImpactaCapacidade(dados)
-  const passageiro = await encontrarOuCriarPassageiro({
-    empresaId,
-    empresaNome,
-    nome: dados.passageiroNome,
-    telefone: dados.passageiroTelefone,
-    documento: dados.passageiroDocumento,
-    email: dados.passageiroEmail,
-    tipo: dados.tipoPassageiro || 'Adulto',
-  })
+  const passageiro = dados.passageiro?.id
+    ? dados.passageiro
+    : await encontrarOuCriarPassageiro({
+        empresaId,
+        empresaNome,
+        nome: dados.passageiroNome,
+        telefone: dados.passageiroTelefone,
+        documento: dados.passageiroDocumento,
+        email: dados.passageiroEmail,
+        tipo: dados.tipoPassageiro || 'Adulto',
+      })
   const codigo = await gerarCodigoPassagem(obterUltimoCodigoPassagemPorPrefixo)
   const qrTargetUrl = montarUrlEmbarquePassagem(codigo)
   const qrCodeDataUrl = dados.qrCodeDataUrl || ''
