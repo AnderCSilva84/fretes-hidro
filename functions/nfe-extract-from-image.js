@@ -1,5 +1,6 @@
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions'
 const MAX_FILE_BYTES = 8 * 1024 * 1024
+const DEFAULT_MODEL = 'gpt-4.1-mini'
 
 const schema = {
   name: 'nfe_autofill',
@@ -73,7 +74,7 @@ export default async function handler(request) {
 
     const bytes = Buffer.from(await image.arrayBuffer())
     const dataUrl = `data:${image.type || 'image/jpeg'};base64,${bytes.toString('base64')}`
-    const model = process.env.OPENAI_NFE_MODEL || 'gpt-4o-mini'
+    const model = process.env.OPENAI_NFE_MODEL || DEFAULT_MODEL
 
     const completionResponse = await fetch(OPENAI_API_URL, {
       method: 'POST',
@@ -102,12 +103,13 @@ export default async function handler(request) {
             content: [
               {
                 type: 'text',
-                text: 'Leia esta foto de nota fiscal e retorne apenas remetenteNome, remetenteDocumento, destinatarioNome, valorMercadoria, descricao, quantidadeVolumes e peso.',
+                text: 'Leia esta foto de nota fiscal e retorne apenas remetenteNome, remetenteDocumento, destinatarioNome, valorMercadoria, descricao, quantidadeVolumes e peso. Nao liste itens, impostos, serie ou observacoes extras.',
               },
               {
                 type: 'image_url',
                 image_url: {
                   url: dataUrl,
+                  detail: 'low',
                 },
               },
             ],
