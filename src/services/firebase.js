@@ -39,7 +39,7 @@ import {
 import { enqueueOfflineAction, getOfflineQueueSummary, listOfflineQueue, pruneOfflineQueue, subscribeOfflineQueue, updateOfflineAction } from './offlineQueue.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
-import { enrichUserModuleAccess, normalizeModuleAccess } from '../utils/accessControl.js'
+import { enrichUserModuleAccess, isGestor, normalizeModuleAccess } from '../utils/accessControl.js'
 import { DEFAULT_EMPRESA, ROOT_SUPERADMIN_EMAIL, SYSTEM_NAME, isRootSuperadminEmail, normalizeEmail } from '../utils/systemConfig.js'
 import { isTarifaAntecipada } from '../utils/tarifaUtils.js'
 import { isTerminalEnvironment } from '../utils/appEnvironment.js'
@@ -1335,8 +1335,18 @@ export async function updateCollectionDocument(collectionName, documentId, updat
   return { id: documentId, ...preparedUpdates }
 }
 
-export async function deleteCollectionDocument(collectionName, documentId) {
+export async function deleteCollectionDocument(collectionName, documentId, actorUser = null) {
   assertManagementWriteAllowed(collectionName)
+
+  if (collectionName === 'caixa') {
+    if (!isRootSuperadminEmail(actorUser?.email) && !isGestor(actorUser)) {
+      throw new Error('Somente gestor ou superadmin pode excluir caixas.')
+    }
+
+    if (isTerminalEnvironment()) {
+      throw new Error('A exclusao de caixas deve ser feita pelo computador.')
+    }
+  }
   if (isConfigured && db) {
     if (collectionName === 'caixa') {
       const caixaRef = doc(db, collectionName, documentId)
@@ -1346,10 +1356,14 @@ export async function deleteCollectionDocument(collectionName, documentId) {
       await deleteDoc(caixaRef)
 
       if (item) {
-        await ajustarResumoCaixa({
-          deltaEntrada: item.tipo === 'entrada' ? -Number(item.valor || 0) : 0,
-          deltaRegistros: -1,
-        })
+        try {
+          await ajustarResumoCaixa({
+            deltaEntrada: item.tipo === 'entrada' ? -Number(item.valor || 0) : 0,
+            deltaRegistros: -1,
+          })
+        } catch (error) {
+          reportRuntimeError('firebase.deleteCollectionDocument.ajustarResumoCaixa', error, { documentId })
+        }
       }
 
       return true
@@ -1466,8 +1480,12 @@ export async function excluirUsuarioSistema(documentId, actorUser = null) {
 }
 
 export async function deleteHistoricoCaixaPassagem(viagemId, actorUser = null) {
-  if (!isRootSuperadminEmail(actorUser?.email)) {
-    throw new Error('Somente o superadmin principal pode excluir historicos de caixa.')
+  if (!isRootSuperadminEmail(actorUser?.email) && !isGestor(actorUser)) {
+    throw new Error('Somente gestor ou superadmin pode excluir historicos de caixa.')
+  }
+
+  if (isTerminalEnvironment()) {
+    throw new Error('A exclusao de caixas deve ser feita pelo computador.')
   }
 
   if (!viagemId) {
@@ -1483,10 +1501,23 @@ export async function deleteHistoricoCaixaPassagem(viagemId, actorUser = null) {
     }
 
     const viagem = { id: viagemSnapshot.id, ...viagemSnapshot.data() }
+
+    if (!actorUser?.rootSuperadmin && actorUser?.empresaId && String(viagem.empresaId || '') !== String(actorUser.empresaId)) {
+      throw new Error('Nao e permitido excluir o caixa de outra empresa.')
+    }
+    const scopedQuery = (collectionName) => {
+      const constraints = [where('viagemId', '==', viagemId)]
+
+      if (!actorUser?.rootSuperadmin && actorUser?.empresaId) {
+        constraints.push(where('empresaId', '==', actorUser.empresaId))
+      }
+
+      return query(collection(db, collectionName), ...constraints)
+    }
     const [passagensSnapshot, caixaSnapshot, checkinsSnapshot] = await Promise.all([
-      getDocs(query(collection(db, 'passagens'), where('viagemId', '==', viagemId))),
-      getDocs(query(collection(db, 'caixa'), where('viagemId', '==', viagemId))),
-      getDocs(query(collection(db, 'checkins'), where('viagemId', '==', viagemId))),
+      getDocs(scopedQuery('passagens')),
+      getDocs(scopedQuery('caixa')),
+      getDocs(scopedQuery('checkins')),
     ])
 
     const passagens = mapDocs(passagensSnapshot)
@@ -1511,10 +1542,14 @@ export async function deleteHistoricoCaixaPassagem(viagemId, actorUser = null) {
     const deltaRegistros = caixaItems.length ? -caixaItems.length : 0
 
     if (deltaEntrada !== 0 || deltaRegistros !== 0) {
-      await ajustarResumoCaixa({
-        deltaEntrada,
-        deltaRegistros,
-      })
+      try {
+        await ajustarResumoCaixa({
+          deltaEntrada,
+          deltaRegistros,
+        })
+      } catch (error) {
+        reportRuntimeError('firebase.deleteHistoricoCaixaPassagem.ajustarResumoCaixa', error, { viagemId })
+      }
     }
 
     await registrarLogUso({
@@ -1532,6 +1567,10 @@ export async function deleteHistoricoCaixaPassagem(viagemId, actorUser = null) {
 
   if (!viagem) {
     throw new Error('Historico de caixa nao encontrado.')
+  }
+
+  if (!actorUser?.rootSuperadmin && actorUser?.empresaId && String(viagem.empresaId || '') !== String(actorUser.empresaId)) {
+    throw new Error('Nao e permitido excluir o caixa de outra empresa.')
   }
 
   const passagens = (store.passagens || []).filter((item) => item.viagemId === viagemId)

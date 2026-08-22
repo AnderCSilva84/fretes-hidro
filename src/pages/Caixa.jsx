@@ -5,7 +5,8 @@ import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import { deleteCollectionDocument, deleteHistoricoCaixaPassagem, getCollectionCount, listCaixaEntries, listCollectionOnce, listCollectionPage, listarHistoricoCaixasPassagem, listarPassagensPorViagem, obterResumoVendaPassagemHorario } from '../services/firebase.js'
-import { hasFreteAccess, hasPassagemAccess } from '../utils/accessControl.js'
+import { hasFreteAccess, hasPassagemAccess, isGestor } from '../utils/accessControl.js'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 import { filterCaixaItemsByModuleAccess, getCaixaCategoria, getCaixaResumoFromItems, resumirCaixaPorCategoria } from '../utils/caixaAccess.js'
 import { gerarCaixaPdf } from '../utils/gerarCaixaPdf.js'
 import { abrirResumoVendaHorarioPdf } from '../utils/resumoVendaHorarioPdf.js'
@@ -114,7 +115,7 @@ function formatarPassagemHistorico(item) {
 
 export default function Caixa() {
   const { user } = useAuth()
-  const isRoot = isRootSuperadminUser(user)
+  const canDeleteCaixa = (isRootSuperadminUser(user) || isGestor(user)) && !isTerminalEnvironment()
   const canAccessFretes = hasFreteAccess(user)
   const canAccessPassagens = hasPassagemAccess(user)
   const [caixaBase, setCaixaBase] = useState([])
@@ -391,6 +392,10 @@ export default function Caixa() {
   }
 
   async function excluirLancamento(item) {
+    if (!canDeleteCaixa) {
+      return
+    }
+
     const confirmed = window.confirm(`Excluir o lancamento ${item.origem || 'sem descricao'}?`)
 
     if (!confirmed) {
@@ -399,7 +404,7 @@ export default function Caixa() {
 
     setDeletingId(item.id)
     try {
-      await deleteCollectionDocument('caixa', item.id)
+      await deleteCollectionDocument('caixa', item.id, user)
       if (filtroAtivo) {
         await aplicarFiltroPeriodo()
       } else {
@@ -508,11 +513,11 @@ export default function Caixa() {
   }
 
   async function excluirHistoricoViagem(item) {
-    if (!isRoot) {
+    if (!canDeleteCaixa) {
       return
     }
 
-    const confirmed = window.confirm(`Excluir o historico do caixa ${item.origem || '-'} - ${item.destino || '-'} em ${item.dataViagem || '-'}?`)
+    const confirmed = window.confirm(`Excluir definitivamente o caixa ${item.origem || '-'} - ${item.destino || '-'} em ${item.dataViagem || '-'}? As passagens, os lancamentos e os check-ins vinculados tambem serao excluidos.`)
 
     if (!confirmed) {
       return
@@ -736,7 +741,7 @@ export default function Caixa() {
                         >
                           {exportingHistoryId === item.id ? 'Gerando PDF...' : 'Exportar PDF'}
                         </Button>
-                        {isRoot ? (
+                        {canDeleteCaixa ? (
                           <Button
                             type="button"
                             variant="danger"
@@ -821,15 +826,17 @@ export default function Caixa() {
                 </div>
                 <div className="flex flex-col items-start gap-3 md:items-end">
                   <p className="text-lg font-bold text-slate-900">R$ {Number(item.valor || 0).toFixed(2)}</p>
-                  <Button
-                    type="button"
-                    variant="danger"
-                    className="min-h-10 px-3 py-2 text-xs"
-                    disabled={deletingId === item.id}
-                    onClick={() => excluirLancamento(item)}
-                  >
-                    {deletingId === item.id ? 'Excluindo...' : 'Excluir'}
-                  </Button>
+                  {canDeleteCaixa ? (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      className="min-h-10 px-3 py-2 text-xs"
+                      disabled={deletingId === item.id}
+                      onClick={() => excluirLancamento(item)}
+                    >
+                      {deletingId === item.id ? 'Excluindo...' : 'Excluir'}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))}
