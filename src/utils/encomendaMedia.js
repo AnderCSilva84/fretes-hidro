@@ -68,21 +68,33 @@ export async function gerarComprovanteArquivo(encomenda) {
 }
 
 export async function abrirComprovante(encomenda, target = '_blank') {
+  const reservedWindow = target === '_blank' ? window.open('', target) : null
   const pdfUrl = await gerarComprovanteUrl(encomenda)
-  const openedWindow = window.open(pdfUrl, target, 'noopener,noreferrer')
+
+  if (reservedWindow && !reservedWindow.closed) {
+    reservedWindow.location.replace(pdfUrl)
+  } else if (target === '_self') {
+    window.location.assign(pdfUrl)
+  }
 
   return {
     pdfUrl,
-    opened: Boolean(openedWindow) || target === '_self',
+    opened: Boolean(reservedWindow) || target === '_self',
   }
 }
 
 export async function abrirReciboRetirada(encomenda, target = '_blank') {
+  const reservedWindow = target === '_blank' ? window.open('', target) : null
   const pdfUrl = await gerarReciboRetirada(encomenda)
-  const openedWindow = window.open(pdfUrl, target, 'noopener,noreferrer')
+
+  if (reservedWindow && !reservedWindow.closed) {
+    reservedWindow.location.replace(pdfUrl)
+  } else if (target === '_self') {
+    window.location.assign(pdfUrl)
+  }
 
   return {
     pdfUrl,
-    opened: Boolean(openedWindow) || target === '_self',
+    opened: Boolean(reservedWindow) || target === '_self',
   }
 }

@@ -39,13 +39,19 @@ export async function gerarManifestoViagemPDF(viagem, passagens) {
 }
 
 export async function abrirManifestoViagem(viagem, passagens, target = '_blank') {
+  const reservedWindow = target === '_blank' ? window.open('', target) : null
   const pdfBlob = await gerarManifestoViagemPDF(viagem, passagens)
   const pdfUrl = URL.createObjectURL(pdfBlob)
   window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000)
-  const openedWindow = window.open(pdfUrl, target, 'noopener,noreferrer')
+
+  if (reservedWindow && !reservedWindow.closed) {
+    reservedWindow.location.replace(pdfUrl)
+  } else if (target === '_self') {
+    window.location.assign(pdfUrl)
+  }
 
   return {
     pdfUrl,
-    opened: Boolean(openedWindow) || target === '_self',
+    opened: Boolean(reservedWindow) || target === '_self',
   }
 }

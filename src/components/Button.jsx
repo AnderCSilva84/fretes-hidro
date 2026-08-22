@@ -9,7 +9,7 @@ export default function Button({ className = '', variant = 'primary', ...props }
 
   return (
     <button
-      className={`inline-flex min-h-12 items-center justify-center rounded-2xl px-4 py-3 text-sm font-bold tracking-[0.01em] transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 ${styles[variant]} ${className}`}
+      className={`app-button inline-flex min-h-12 max-w-full items-center justify-center whitespace-normal rounded-2xl px-4 py-3 text-center text-sm font-bold leading-tight tracking-[0.01em] transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 ${styles[variant]} ${className}`}
       {...props}
     />
   )

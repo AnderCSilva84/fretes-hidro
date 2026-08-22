@@ -80,14 +80,20 @@ export async function gerarResumoVendaHorarioPdf({ viagem, passagens, resumo }) 
 }
 
 export async function abrirResumoVendaHorarioPdf(payload, target = '_blank') {
+  const reservedWindow = target === '_blank' ? window.open('', target) : null
   const pdfBlob = await gerarResumoVendaHorarioPdf(payload)
   const pdfUrl = URL.createObjectURL(pdfBlob)
   window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000)
-  const openedWindow = window.open(pdfUrl, target, 'noopener,noreferrer')
+
+  if (reservedWindow && !reservedWindow.closed) {
+    reservedWindow.location.replace(pdfUrl)
+  } else if (target === '_self') {
+    window.location.assign(pdfUrl)
+  }
 
   return {
     pdfBlob,
     pdfUrl,
-    openedWindow,
+    openedWindow: reservedWindow,
   }
 }

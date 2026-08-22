@@ -52,13 +52,19 @@ export async function gerarBilhetePassagemPDF(passagem) {
 }
 
 export async function abrirBilhetePassagem(passagem, target = '_blank') {
+  const reservedWindow = target === '_blank' ? window.open('', target) : null
   const pdfBlob = await gerarBilhetePassagemPDF(passagem)
   const pdfUrl = URL.createObjectURL(pdfBlob)
   window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000)
-  const openedWindow = window.open(pdfUrl, target, 'noopener,noreferrer')
+
+  if (reservedWindow && !reservedWindow.closed) {
+    reservedWindow.location.replace(pdfUrl)
+  } else if (target === '_self') {
+    window.location.assign(pdfUrl)
+  }
 
   return {
     pdfUrl,
-    opened: Boolean(openedWindow) || target === '_self',
+    opened: Boolean(reservedWindow) || target === '_self',
   }
 }
