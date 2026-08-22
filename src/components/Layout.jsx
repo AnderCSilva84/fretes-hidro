@@ -5,10 +5,12 @@ import Header from './Header.jsx'
 import ImpersonationBanner from './ImpersonationBanner.jsx'
 import Sidebar from './Sidebar.jsx'
 import SystemFooter from './SystemFooter.jsx'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 
 export default function Layout({ title, subtitle, icon, children, immersive = false, contentClassName = '', containerClassName = '' }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const { user, logout, stopImpersonation } = useAuth()
+  const terminalEnvironment = isTerminalEnvironment()
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -53,7 +55,7 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
 
   return (
     <div
-      className="min-h-screen"
+      className={`min-h-screen ${terminalEnvironment ? 'app-environment-terminal' : ''}`}
       style={{
         background: 'radial-gradient(circle at top, var(--brand-primary-soft), transparent 34%), linear-gradient(180deg, #eef5ff 0%, #dbeafe 100%)',
       }}

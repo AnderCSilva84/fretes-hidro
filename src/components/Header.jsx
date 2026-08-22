@@ -46,7 +46,7 @@ export default function Header({ title, icon, onMenuClick, onLogout, user }) {
           </div>
 
           <div className="flex shrink-0 items-start justify-end gap-2 lg:min-w-[12rem]">
-            <div className="hidden rounded-2xl bg-white/10 px-3 py-2 text-right backdrop-blur sm:block">
+            <div className="app-header-user hidden rounded-2xl bg-white/10 px-3 py-2 text-right backdrop-blur sm:block">
               <p className="text-sm font-semibold text-white">{nomeExibido}</p>
               <p className="text-xs text-blue-100/80">{descricaoExibida}</p>
             </div>
