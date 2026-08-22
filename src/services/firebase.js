@@ -119,7 +119,7 @@ const seedStore = {
       uid: 'admin-demo',
       nome: 'Admin Fretes',
       email: 'admin@fretes.local',
-      perfil: 'admin',
+      perfil: 'gestor',
       senha: '123456',
       ativo: true,
       empresaId: DEFAULT_EMPRESA.id,
@@ -490,7 +490,7 @@ function getLocalUser() {
     return {
       ...enrichUserModuleAccess(parsed),
       email: normalizeEmail(parsed?.email),
-      perfil: rootAccess ? 'superadmin' : parsed?.perfil || 'admin',
+      perfil: rootAccess ? 'superadmin' : parsed?.perfil || 'operador',
       empresaId: rootAccess ? '' : parsed?.empresaId || '',
       empresaNome: rootAccess ? SYSTEM_NAME : parsed?.empresaNome || '',
       rootSuperadmin: rootAccess,
@@ -507,7 +507,7 @@ function setLocalUser(user) {
       window.localStorage.setItem(authKey, JSON.stringify({
         ...enrichUserModuleAccess(user),
         email: normalizeEmail(user?.email),
-        perfil: rootAccess ? 'superadmin' : user?.perfil || 'admin',
+        perfil: rootAccess ? 'superadmin' : user?.perfil || 'operador',
         empresaId: rootAccess ? '' : user?.empresaId || '',
         empresaNome: rootAccess ? SYSTEM_NAME : user?.empresaNome || '',
         rootSuperadmin: rootAccess,
@@ -865,7 +865,7 @@ async function buildSessionUser(authUser) {
     email: normalizedEmail,
     displayName: authUser.displayName || profile?.nome || '',
     nome: profile?.nome || authUser.displayName || '',
-    perfil: rootAccess ? 'superadmin' : profile?.perfil || 'admin',
+    perfil: rootAccess ? 'superadmin' : profile?.perfil || 'operador',
     ativo: profile?.ativo ?? true,
     empresaId: rootAccess ? '' : profile?.empresaId || '',
     empresaNome: rootAccess ? SYSTEM_NAME : profile?.empresaNome || '',
@@ -957,7 +957,7 @@ export async function entrar(email, senha) {
     displayName: account.nome,
     email: normalizeEmail(account.email),
     nome: account.nome,
-    perfil: isRootSuperadminEmail(account.email) ? 'superadmin' : account.perfil || 'admin',
+    perfil: isRootSuperadminEmail(account.email) ? 'superadmin' : account.perfil || 'operador',
     ativo: account.ativo ?? true,
     empresaId: isRootSuperadminEmail(account.email) ? '' : account.empresaId || '',
     empresaNome: isRootSuperadminEmail(account.email) ? SYSTEM_NAME : account.empresaNome || '',
@@ -2203,7 +2203,7 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
   }
 
   if (normalizedPerfil !== 'operador' && !actorIsRoot) {
-    throw new Error('Somente o superadmin principal pode criar usuarios admin.')
+    throw new Error('Somente o superadmin principal pode criar gestores.')
   }
 
   if (normalizedPerfil === 'superadmin' && !isRootSuperadminEmail(normalizedEmail)) {
@@ -2328,7 +2328,7 @@ export async function atualizarUsuario(documentId, updates, actorUser = null) {
   }
 
   if (normalizedPerfil !== 'operador' && !actorIsRoot) {
-    throw new Error('Somente o superadmin principal pode manter usuarios como admin.')
+    throw new Error('Somente o superadmin principal pode manter gestores.')
   }
 
   const normalizedModules = normalizeModuleAccess(updates)

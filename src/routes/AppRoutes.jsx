@@ -5,6 +5,7 @@ import ProtectedRoute from '../components/ProtectedRoute.jsx'
 import RouteErrorBoundary from '../components/RouteErrorBoundary.jsx'
 import useAuth from '../context/useAuth.js'
 import { getDefaultHomeRoute } from '../utils/accessControl.js'
+import { APP_ENVIRONMENTS } from '../utils/appEnvironment.js'
 import { lazyWithRetry } from '../utils/lazyWithRetry.js'
 
 const Login = lazyWithRetry(() => import('../pages/Login.jsx'), 'login')
@@ -27,6 +28,7 @@ const ScannerEmbarque = lazyWithRetry(() => import('../pages/ScannerEmbarque.jsx
 const ScannerRetirada = lazyWithRetry(() => import('../pages/ScannerRetirada.jsx'), 'scanner-retirada')
 const Terminais = lazyWithRetry(() => import('../pages/Terminais.jsx'), 'terminais')
 const Usuarios = lazyWithRetry(() => import('../pages/Usuarios.jsx'), 'usuarios')
+const Viagens = lazyWithRetry(() => import('../pages/Viagens.jsx'), 'viagens')
 
 function HomeRedirect() {
   const { user } = useAuth()
@@ -43,30 +45,39 @@ export default function AppRoutes() {
       >
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/computador" element={<Login environment={APP_ENVIRONMENTS.DESKTOP} />} />
+          <Route path="/terminal" element={<Login environment={APP_ENVIRONMENTS.TERMINAL} />} />
           <Route path="/rastreio/:codigo" element={<Rastreio />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<HomeRedirect />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route element={<ProtectedRoute requiredEnvironment={APP_ENVIRONMENTS.DESKTOP} requiredManagement />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/clientes" element={<Clientes />} />
+              <Route path="/passageiros" element={<Passageiros />} />
+              <Route path="/terminais" element={<Terminais />} />
+              <Route path="/embarcacoes" element={<Embarcacoes />} />
+              <Route path="/rotas-valores" element={<RotasValores />} />
+              <Route path="/viagens" element={<Viagens />} />
+            </Route>
             <Route element={<ProtectedRoute requiredModule="fretes" />}>
               <Route path="/nova-comanda" element={<NovaComanda />} />
-              <Route path="/clientes" element={<Clientes />} />
-              <Route path="/encomendas" element={<Encomendas />} />
               <Route path="/scanner-retirada" element={<ScannerRetirada />} />
               <Route path="/retirada/:codigo" element={<RetiradaEntrega />} />
+              <Route element={<ProtectedRoute requiredEnvironment={APP_ENVIRONMENTS.DESKTOP} />}>
+                <Route path="/encomendas" element={<Encomendas />} />
+              </Route>
             </Route>
             <Route element={<ProtectedRoute requiredModule="passagens" />}>
               <Route path="/nova-passagem" element={<NovaPassagem />} />
-              <Route path="/passageiros" element={<Passageiros />} />
               <Route path="/passagens" element={<Passagens />} />
               <Route path="/scanner-embarque" element={<ScannerEmbarque />} />
-              <Route path="/manifesto/:viagemId" element={<ManifestoViagem />} />
+              <Route element={<ProtectedRoute requiredEnvironment={APP_ENVIRONMENTS.DESKTOP} />}>
+                <Route path="/manifesto/:viagemId" element={<ManifestoViagem />} />
+              </Route>
             </Route>
-            <Route path="/terminais" element={<Terminais />} />
-            <Route path="/embarcacoes" element={<Embarcacoes />} />
-            <Route path="/rotas-valores" element={<RotasValores />} />
             <Route path="/caixa" element={<Caixa />} />
           </Route>
-          <Route element={<ProtectedRoute requiredPerfil="superadmin" />}>
+          <Route element={<ProtectedRoute requiredPerfil="superadmin" requiredEnvironment={APP_ENVIRONMENTS.DESKTOP} />}>
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/empresas" element={<Empresas />} />
             <Route path="/logs-uso" element={<LogsUso />} />

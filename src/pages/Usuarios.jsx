@@ -184,7 +184,7 @@ export default function Usuarios() {
       nome: usuario.nome || '',
       email: usuario.email || '',
       senha: '',
-      perfil: usuario.perfil || 'operador',
+      perfil: usuario.perfil === 'admin' ? 'gestor' : usuario.perfil || 'operador',
       ativo: usuario.ativo !== false,
       acessoFretes: usuario.acessoFretes !== false,
       acessoPassagens: usuario.acessoPassagens !== false,
@@ -260,7 +260,7 @@ export default function Usuarios() {
   const opcoesPerfil = isRoot
     ? [
         { value: 'operador', label: 'Operador' },
-        { value: 'admin', label: 'Admin' },
+        { value: 'gestor', label: 'Gestor da empresa' },
       ]
     : [{ value: 'operador', label: 'Operador' }]
 
@@ -495,7 +495,7 @@ export default function Usuarios() {
                 </label>
               </div>
               <p className="mt-3 text-xs text-slate-500">
-                Usuarios admin e operador precisam estar vinculados a uma empresa.
+                Gestores e operadores precisam estar vinculados a uma empresa.
               </p>
             </div>
 
@@ -503,7 +503,7 @@ export default function Usuarios() {
             {success ? <p className="md:col-span-2 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p> : null}
             {!isRoot ? (
               <p className="md:col-span-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                Apenas o superadmin principal pode criar usuarios admin.
+                Apenas o superadmin principal pode criar gestores.
               </p>
             ) : null}
 

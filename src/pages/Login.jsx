@@ -1,24 +1,38 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import Card from '../components/Card.jsx'
 import Input from '../components/Input.jsx'
 import SystemFooter from '../components/SystemFooter.jsx'
 import useAuth from '../context/useAuth.js'
 import { ROOT_SUPERADMIN_EMAIL, SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
+import { canUseEnvironment, getDefaultHomeRoute } from '../utils/accessControl.js'
+import { APP_ENVIRONMENTS, readAppEnvironment, writeAppEnvironment } from '../utils/appEnvironment.js'
 
-export default function Login() {
-  const { login, ready, user } = useAuth()
+export default function Login({ environment = null }) {
+  const { login, logout, ready, user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (ready && user) {
-      navigate('/dashboard', { replace: true })
+    if (environment) {
+      writeAppEnvironment(environment)
     }
-  }, [navigate, ready, user])
+  }, [environment])
+
+  useEffect(() => {
+    if (ready && user) {
+      const currentEnvironment = environment || readAppEnvironment()
+      if (canUseEnvironment(user, currentEnvironment)) {
+        navigate(getDefaultHomeRoute(user, currentEnvironment), { replace: true })
+      } else {
+        void logout()
+      }
+    }
+  }, [environment, logout, navigate, ready, user])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -26,8 +40,15 @@ export default function Login() {
     setError('')
 
     try {
-      await login(form.email, form.password)
-      navigate('/dashboard')
+      const loggedUser = await login(form.email, form.password)
+      const currentEnvironment = environment || readAppEnvironment()
+
+      if (!canUseEnvironment(loggedUser, currentEnvironment)) {
+        await logout()
+        throw new Error('Gestor e superadmin devem acessar pelo computador.')
+      }
+
+      navigate(getDefaultHomeRoute(loggedUser, currentEnvironment))
     } catch (submitError) {
       setError(submitError.message || 'Nao foi possivel entrar')
     } finally {
@@ -49,7 +70,9 @@ export default function Login() {
                 />
                 <p className="text-xs uppercase tracking-[0.35em] text-[#1657d8]">{SYSTEM_NAME}</p>
               </div>
-              <h2 className="mt-4 text-3xl font-bold text-slate-900">Entrar no sistema</h2>
+              <h2 className="mt-4 text-3xl font-bold text-slate-900">
+                {environment === APP_ENVIRONMENTS.TERMINAL ? 'Entrar na maquineta' : 'Entrar no sistema'}
+              </h2>
               <p className="mt-2 text-sm text-slate-500">
                 Use suas credenciais do Firebase ou os acessos criados pelo superadmin em modo demonstracao.
               </p>
@@ -74,6 +97,7 @@ export default function Login() {
             />
 
             {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+            {!error && location.state?.environmentError ? <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-700">{location.state.environmentError}</p> : null}
 
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Entrando...' : 'Acessar painel'}

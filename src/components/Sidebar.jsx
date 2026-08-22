@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom'
 import useAuth from '../context/useAuth.js'
 import useBranding from '../context/useBranding.js'
-import { getDefaultHomeRoute, hasFreteAccess, hasPassagemAccess } from '../utils/accessControl.js'
+import { canAccessManagement, getDefaultHomeRoute, hasFreteAccess, hasPassagemAccess } from '../utils/accessControl.js'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 import {
   BoatIcon,
   BuildingIcon,
@@ -59,16 +60,15 @@ export default function Sidebar({ open = false, onClose }) {
   const { company, branding } = useBranding()
   const canAccessFretes = hasFreteAccess(user)
   const canAccessPassagens = hasPassagemAccess(user)
+  const terminalEnvironment = isTerminalEnvironment()
+  const managementAccess = canAccessManagement(user) && !terminalEnvironment
 
-  const dashboardItems = [
-    { to: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
-  ]
+  const dashboardItems = managementAccess ? [{ to: '/dashboard', label: 'Dashboard', icon: DashboardIcon }] : []
 
   const freteItems = canAccessFretes
     ? [
         { to: '/nova-comanda', label: 'Novo Frete', icon: PlusIcon },
-        { to: '/clientes', label: 'Clientes', icon: PeopleIcon },
-        { to: '/encomendas', label: 'Encomendas', icon: PackageIcon },
+        ...(managementAccess ? [{ to: '/clientes', label: 'Clientes', icon: PeopleIcon }, { to: '/encomendas', label: 'Encomendas', icon: PackageIcon }] : []),
         { to: '/scanner-retirada', label: 'Scanner Retirada', icon: SearchIcon },
       ]
     : []
@@ -76,21 +76,26 @@ export default function Sidebar({ open = false, onClose }) {
   const passagemItems = canAccessPassagens
     ? [
         { to: '/nova-passagem', label: 'Nova Passagem', icon: PlusIcon },
-        { to: '/passageiros', label: 'Passageiros', icon: PeopleIcon },
+        ...(managementAccess ? [{ to: '/passageiros', label: 'Passageiros', icon: PeopleIcon }] : []),
         { to: '/passagens', label: 'Passagens', icon: PackageIcon },
         { to: '/scanner-embarque', label: 'Scanner Embarque', icon: SearchIcon },
       ]
     : []
 
   const sharedItems = [
-    { to: '/terminais', label: 'Terminais', icon: PinIcon },
-    { to: '/embarcacoes', label: 'Embarcacoes', icon: BoatIcon },
-    { to: '/rotas-valores', label: 'Rotas e Valores', icon: RouteIcon },
+    ...(managementAccess
+      ? [
+          { to: '/viagens', label: 'Linhas e Horarios', icon: BoatIcon },
+          { to: '/terminais', label: 'Terminais', icon: PinIcon },
+          { to: '/embarcacoes', label: 'Embarcacoes', icon: BoatIcon },
+          { to: '/rotas-valores', label: 'Rotas e Valores', icon: RouteIcon },
+        ]
+      : []),
     { to: '/caixa', label: 'Caixa', icon: MoneyIcon },
   ]
 
   const adminItems =
-    user?.perfil === 'superadmin'
+    !terminalEnvironment && user?.perfil === 'superadmin'
       ? [
           { to: '/usuarios', label: 'Usuarios', icon: ShieldIcon },
           { to: '/empresas', label: 'Empresas', icon: BuildingIcon },

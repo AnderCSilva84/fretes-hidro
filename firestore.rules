@@ -18,6 +18,14 @@ service cloud.firestore {
       return userDoc().data.empresaId;
     }
 
+    function userPerfil() {
+      return userDoc().data.perfil;
+    }
+
+    function isGestor() {
+      return isSignedIn() && userPerfil() in ['gestor', 'admin'];
+    }
+
     function hasEmpresaScope() {
       return userEmpresaId() != null && userEmpresaId() != '';
     }
@@ -52,7 +60,34 @@ service cloud.firestore {
         'rotasValores',
         'encomendas',
         'movimentacoes',
-        'caixa'
+        'caixa',
+        'viagens',
+        'programacoesViagem',
+        'passageiros',
+        'passagens',
+        'checkins'
+      ];
+    }
+
+    function isManagementCollection(collectionName) {
+      return collectionName in [
+        'terminais',
+        'embarcacoes',
+        'rotasValores',
+        'programacoesViagem'
+      ];
+    }
+
+    function isOperationalCollection(collectionName) {
+      return collectionName in [
+        'clientes',
+        'encomendas',
+        'movimentacoes',
+        'caixa',
+        'viagens',
+        'passageiros',
+        'passagens',
+        'checkins'
       ];
     }
 
@@ -62,11 +97,14 @@ service cloud.firestore {
     }
 
     match /empresas/{empresaId} {
-      allow read, write: if isRootSuperadmin();
+      allow read: if isRootSuperadmin() || (isSignedIn() && empresaId == userEmpresaId());
+      allow write: if isRootSuperadmin();
     }
 
     match /logsUso/{logId} {
-      allow read, write: if isRootSuperadmin();
+      allow read, update, delete: if isRootSuperadmin();
+      allow create: if isRootSuperadmin()
+        || (isSignedIn() && request.resource.data.empresaId == userEmpresaId());
     }
 
     match /resumos/{resumoId} {
@@ -85,12 +123,20 @@ service cloud.firestore {
         || (
           canCreateScopedCollection()
           && isScopedCollection(collectionName)
+          && (
+            isOperationalCollection(collectionName)
+            || (isManagementCollection(collectionName) && isGestor())
+          )
         );
 
       allow update: if isRootSuperadmin()
         || (
           canAccessScopedCollection(resource.data)
           && isScopedCollection(collectionName)
+          && (
+            isOperationalCollection(collectionName)
+            || (isManagementCollection(collectionName) && isGestor())
+          )
           && (
             !hasEmpresaScope()
             || request.resource.data.empresaId == resource.data.empresaId
@@ -101,6 +147,7 @@ service cloud.firestore {
         || (
           canAccessScopedCollection(resource.data)
           && isScopedCollection(collectionName)
+          && isGestor()
         );
     }
   }

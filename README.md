@@ -61,6 +61,12 @@ O PWA reconhece Android e envia os bilhetes de 58 mm em ESC/POS para o RawBT. A 
 
 - [docs/impressao-termica-vt-q2i.md](./docs/impressao-termica-vt-q2i.md)
 
+## Ambientes e perfis
+
+O sistema separa o ambiente operacional da maquineta (`/terminal`) do ambiente de gestao no computador (`/computador`).
+
+- [docs/ambientes-e-perfis.md](./docs/ambientes-e-perfis.md)
+
 ## Firebase
 
 O projeto já vem preparado para Firebase Hosting com `firebase.json` e `.firebaserc`.

@@ -1,17 +1,31 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import AppSplashScreen from './AppSplashScreen.jsx'
 import useAuth from '../context/useAuth.js'
-import { getDefaultHomeRoute, hasModuleAccess } from '../utils/accessControl.js'
+import { canAccessManagement, canUseEnvironment, getDefaultHomeRoute, hasModuleAccess } from '../utils/accessControl.js'
+import { APP_ENVIRONMENTS, readAppEnvironment } from '../utils/appEnvironment.js'
 
-export default function ProtectedRoute({ requiredPerfil = null, requiredModule = null }) {
+export default function ProtectedRoute({ requiredPerfil = null, requiredModule = null, requiredEnvironment = null, requiredManagement = false }) {
   const { ready, user } = useAuth()
+  const environment = readAppEnvironment()
 
   if (!ready) {
     return <AppSplashScreen message="Carregando acesso..." />
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    return <Navigate to={environment === APP_ENVIRONMENTS.TERMINAL ? '/terminal' : '/login'} replace />
+  }
+
+  if (!canUseEnvironment(user, environment)) {
+    return <Navigate to="/terminal" replace state={{ environmentError: 'Gestor e superadmin devem acessar pelo computador.' }} />
+  }
+
+  if (requiredEnvironment && environment !== requiredEnvironment) {
+    return <Navigate to={getDefaultHomeRoute(user, environment)} replace />
+  }
+
+  if (requiredManagement && !canAccessManagement(user)) {
+    return <Navigate to={getDefaultHomeRoute(user, environment)} replace />
   }
 
   if (requiredPerfil) {
