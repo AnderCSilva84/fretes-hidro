@@ -3210,6 +3210,10 @@ export async function abrirVendaPassagemHorario(dados) {
 
   const viagemAtual = await getViagemById(viagemId, { empresaId: dados.empresaId || '', empresaNome: dados.empresaNome || '' })
 
+  if (viagemAtual?.caixaAbertoEm && !viagemAtual?.caixaFechadoEm) {
+    return viagemAtual
+  }
+
   const payload = montarPayloadViagemProgramada({
     id: viagemId,
     codigoViagem: viagemAtual?.codigoViagem || dados.codigoViagem || gerarCodigoViagem(),
@@ -3286,6 +3290,10 @@ export async function encerrarVendaPassagemHorario(viagemId, actor = {}) {
 
   if (!viagem) {
     throw new Error('Horario nao encontrado para encerramento.')
+  }
+
+  if (!viagem.caixaAbertoEm || viagem.caixaFechadoEm) {
+    throw new Error('Este caixa nao esta aberto. Atualize a tela e selecione um horario com caixa aberto.')
   }
 
   const fechadoEm = new Date().toISOString()

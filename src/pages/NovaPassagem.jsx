@@ -366,7 +366,14 @@ export default function NovaPassagem() {
     }
   }, [embarcacaoSelecionada, form.dataViagem, form.horarioSaida, rotaSelecionada, viagens])
 
-  const viagemAberta = ['Aberta', 'Embarcando'].includes(viagemSelecionada?.status)
+  // Uma viagem programada tambem pode ter status "Aberta" antes de o operador
+  // abrir o caixa. A existencia da abertura do caixa e a fonte de verdade aqui.
+  const viagemAberta = Boolean(
+    viagemSelecionada
+      && viagemSelecionada.caixaAbertoEm
+      && !viagemSelecionada.caixaFechadoEm
+      && ['Aberta', 'Embarcando'].includes(viagemSelecionada.status),
+  )
   const tarifaAntecipada = (form.itensVenda || []).some((item) => isTarifaAntecipada(item.tarifaTipo))
   const statusCaixaLabel = viagemAberta ? 'Caixa Aberto' : 'Caixa Fechado'
   const passagensEmbarqueOrdenadas = useMemo(
