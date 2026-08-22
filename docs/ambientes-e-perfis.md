@@ -8,9 +8,9 @@
 
 O ambiente escolhido fica salvo apenas no aparelho. Na VT-Q2i, acesse `/terminal` antes de instalar o PWA.
 
-## Operador no terminal
+## Operador e superadmin no terminal
 
-O perfil `operador` pode acessar:
+Os perfis `operador` e `superadmin` podem acessar o ambiente operacional da maquineta:
 
 - novo frete;
 - scanner e confirmacao de retirada;
@@ -19,7 +19,7 @@ O perfil `operador` pode acessar:
 - scanner de embarque;
 - caixa.
 
-Dashboard, cadastros e administracao ficam bloqueados no menu e nas rotas.
+Dashboard, cadastros e administracao ficam bloqueados no menu e nas rotas, inclusive para o superadmin enquanto ele estiver usando o modo terminal.
 
 ## Gestor no computador
 
@@ -35,7 +35,7 @@ O perfil `gestor` administra apenas a empresa vinculada ao seu usuario e pode ac
 
 ## Superadmin no computador
 
-O perfil `superadmin` possui acesso central a empresas, usuarios, logs e aos dados operacionais. Gestor e superadmin nao podem entrar pelo ambiente `/terminal`.
+O perfil `superadmin` possui acesso central a empresas, usuarios, logs e aos dados operacionais no computador. Ele tambem pode entrar em `/terminal`, recebendo nesse ambiente o mesmo menu operacional do operador. O perfil gestor nao pode entrar pelo ambiente `/terminal`.
 
 ## Seguranca
 

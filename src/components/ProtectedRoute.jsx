@@ -17,7 +17,7 @@ export default function ProtectedRoute({ requiredPerfil = null, requiredModule =
   }
 
   if (!canUseEnvironment(user, environment)) {
-    return <Navigate to="/terminal" replace state={{ environmentError: 'Gestor e superadmin devem acessar pelo computador.' }} />
+    return <Navigate to="/terminal" replace state={{ environmentError: 'O perfil gestor deve acessar pelo computador.' }} />
   }
 
   if (requiredEnvironment && environment !== requiredEnvironment) {

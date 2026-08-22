@@ -90,7 +90,11 @@ export function canAccessManagement(user) {
 
 export function canUseEnvironment(user, environment = readAppEnvironment()) {
   if (environment === APP_ENVIRONMENTS.TERMINAL) {
-    return String(user?.perfil || '').toLowerCase() === 'operador' && !user?.rootSuperadmin
+    return Boolean(
+      user?.rootSuperadmin
+      || user?.perfil === 'superadmin'
+      || String(user?.perfil || '').toLowerCase() === 'operador',
+    )
   }
 
   return true

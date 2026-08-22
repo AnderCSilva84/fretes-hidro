@@ -45,7 +45,7 @@ export default function Login({ environment = null }) {
 
       if (!canUseEnvironment(loggedUser, currentEnvironment)) {
         await logout()
-        throw new Error('Gestor e superadmin devem acessar pelo computador.')
+        throw new Error('O perfil gestor deve acessar pelo computador.')
       }
 
       navigate(getDefaultHomeRoute(loggedUser, currentEnvironment))
