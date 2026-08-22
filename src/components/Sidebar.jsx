@@ -101,9 +101,15 @@ export default function Sidebar({ open = false, onClose }) {
   return (
     <aside
       aria-hidden={!open}
-      className={`app-sidebar fixed inset-y-0 left-0 z-30 h-screen w-[21rem] max-w-[90vw] overflow-y-auto overscroll-contain border-r border-blue-100 bg-white/98 p-5 pb-10 text-slate-900 shadow-2xl transition-transform duration-300 ${
-        open ? 'translate-x-0' : '-translate-x-full'
-      }`}
+      className="app-sidebar fixed inset-y-0 left-0 z-30 h-screen w-[21rem] max-w-[90vw] overflow-y-auto overscroll-contain border-r border-blue-100 bg-white/98 p-5 pb-10 text-slate-900 shadow-2xl"
+      style={{
+        transform: open ? 'translate3d(0, 0, 0)' : 'translate3d(-101%, 0, 0)',
+        WebkitTransform: open ? 'translate3d(0, 0, 0)' : 'translate3d(-101%, 0, 0)',
+        transition: 'transform 300ms ease',
+        WebkitTransition: '-webkit-transform 300ms ease',
+        visibility: open ? 'visible' : 'hidden',
+        pointerEvents: open ? 'auto' : 'none',
+      }}
     >
       <div className="sticky top-0 z-10 mb-2 flex justify-end pointer-events-none">
         <button
