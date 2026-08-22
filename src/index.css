@@ -108,11 +108,42 @@ textarea {
   }
 
   .app-header-inner {
-    padding: 0.7rem 0.75rem 0.8rem;
+    padding: 0.5rem 0.65rem;
   }
 
   .app-header-title {
-    margin-top: 0.45rem;
+    display: none;
+  }
+
+  .app-header-compact-title {
+    display: block;
+  }
+
+  .app-header-controls {
+    gap: 0.4rem;
+  }
+
+  .app-header-action {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 0.8rem;
+  }
+
+  .app-header-action svg {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  .app-header-logout {
+    min-height: 2.4rem;
+    height: 2.4rem;
+    padding-inline: 0.65rem;
+    border-radius: 0.8rem;
+  }
+
+  .app-header-logout svg {
+    width: 1.15rem;
+    height: 1.15rem;
   }
 
   .app-main {

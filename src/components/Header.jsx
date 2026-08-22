@@ -22,25 +22,28 @@ export default function Header({ title, icon, onMenuClick, onLogout, user }) {
       }}
     >
       <div className="app-header-inner px-4 pb-4 pt-4 sm:px-5">
-        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
-          <div className="flex items-start gap-3 lg:min-w-[8rem]">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+          <div className="app-header-controls flex items-center gap-3 lg:min-w-[8rem]">
             <button
               type="button"
               onClick={onMenuClick}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/14 text-white backdrop-blur transition hover:bg-white/18"
+              className="app-header-action flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/14 text-white backdrop-blur transition hover:bg-white/18"
               aria-label="Abrir menu"
             >
               <MenuIcon />
             </button>
 
             {icon ? (
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/14 text-white backdrop-blur">
+              <div className="app-header-action flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/14 text-white backdrop-blur">
                 {icon}
               </div>
             ) : null}
           </div>
 
-          <div />
+          <div className="app-header-compact-title hidden min-w-0 text-center">
+            <h1 className="truncate text-base font-bold leading-tight">{title}</h1>
+            <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-blue-100/90">{empresaAtual}</p>
+          </div>
 
           <div className="flex shrink-0 items-start justify-end gap-2 lg:min-w-[12rem]">
             <div className="hidden rounded-2xl bg-white/10 px-3 py-2 text-right backdrop-blur sm:block">
@@ -49,7 +52,7 @@ export default function Header({ title, icon, onMenuClick, onLogout, user }) {
             </div>
 
             {onLogout ? (
-              <Button variant="ghost" onClick={onLogout} className="min-h-12 self-start rounded-2xl border-white/20 bg-white/10 px-3 text-white hover:bg-white/16">
+              <Button variant="ghost" onClick={onLogout} className="app-header-logout min-h-12 self-start rounded-2xl border-white/20 bg-white/10 px-3 text-white hover:bg-white/16">
                 <LogoutIcon />
               </Button>
             ) : null}
