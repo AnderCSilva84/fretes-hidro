@@ -103,6 +103,35 @@ textarea {
   background-color: #bfdbfe;
 }
 
+/* Cabecalho compacto em todas as telas para liberar espaco de trabalho. */
+.app-header {
+  border-radius: 0 0 1.25rem 1.25rem;
+}
+
+.app-header-inner {
+  padding: 0.65rem 0.9rem;
+}
+
+.app-header-title {
+  display: none;
+}
+
+.app-header-compact-title {
+  display: block;
+}
+
+.app-header-action {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.85rem;
+}
+
+.app-header-logout {
+  min-height: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.85rem;
+}
+
 /* A Q2i pode reportar viewport de tablet apesar da tela fisica de 5,5". */
 .app-environment-terminal .app-header {
   border-radius: 0 0 1rem 1rem;

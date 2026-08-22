@@ -40,9 +40,18 @@ export default function Header({ title, icon, onMenuClick, onLogout, user }) {
             ) : null}
           </div>
 
-          <div className="app-header-compact-title hidden min-w-0 text-center">
-            <h1 className="truncate text-base font-bold leading-tight">{title}</h1>
-            <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-blue-100/90">{empresaAtual}</p>
+          <div className="app-header-compact-title min-w-0 text-center">
+            <div className="flex min-w-0 items-center justify-center gap-2">
+              <img
+                src={branding.logoUrl || SYSTEM_ICON_SRC}
+                alt=""
+                className="app-header-compact-logo h-9 w-9 shrink-0 rounded-xl border border-white/30 bg-white object-cover p-1"
+              />
+              <div className="min-w-0 text-left">
+                <h1 className="truncate text-base font-bold leading-tight">{title}</h1>
+                <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-blue-100/90">{empresaAtual}</p>
+              </div>
+            </div>
           </div>
 
           <div className="flex shrink-0 items-start justify-end gap-2 lg:min-w-[12rem]">
