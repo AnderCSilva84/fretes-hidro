@@ -54,6 +54,8 @@ export default function AppRoutes() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/clientes" element={<Clientes />} />
               <Route path="/passageiros" element={<Passageiros />} />
+            </Route>
+            <Route element={<ProtectedRoute requiredEnvironment={APP_ENVIRONMENTS.DESKTOP} requiredManagement allowTerminalSuperadmin />}>
               <Route path="/terminais" element={<Terminais />} />
               <Route path="/embarcacoes" element={<Embarcacoes />} />
               <Route path="/rotas-valores" element={<RotasValores />} />

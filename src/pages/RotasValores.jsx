@@ -14,6 +14,7 @@ import {
   searchCollectionByField,
   updateCollectionDocument,
 } from '../services/firebase.js'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 
 const initialForm = {
   origem: '',
@@ -35,6 +36,7 @@ const EXIBICAO_OPTIONS = [
 
 export default function RotasValores() {
   const { user } = useAuth()
+  const readOnly = isTerminalEnvironment()
   const isRoot = isRootSuperadminUser(user)
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
@@ -270,7 +272,7 @@ export default function RotasValores() {
     <Layout title="Cadastro de rotas e valores" subtitle="Controle tarifario por linha, terminal e duracao." icon={<RouteIcon className="h-6 w-6" />}>
       <PageShell title="Rotas cadastradas" subtitle="A linha define terminal, duracao e valor padrao do frete." icon={<RouteIcon className="h-6 w-6" />}>
         <div className="space-y-6">
-          <div className="rounded-[1.7rem] border border-blue-100 bg-white p-4 shadow-[0_12px_30px_rgba(28,99,231,0.05)] md:p-5">
+          {!readOnly ? <div className="rounded-[1.7rem] border border-blue-100 bg-white p-4 shadow-[0_12px_30px_rgba(28,99,231,0.05)] md:p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#1657d8]">Linha</p>
@@ -382,7 +384,7 @@ export default function RotasValores() {
                 ) : null}
               </div>
             </form>
-          </div>
+          </div> : null}
 
           <form className="rounded-[1.5rem] border border-blue-100 bg-blue-50/60 p-4" onSubmit={handleSearch}>
             <div className="flex flex-col gap-3 md:flex-row md:items-end">
@@ -429,7 +431,7 @@ export default function RotasValores() {
                   Exibicao: {EXIBICAO_OPTIONS.find((item) => item.value === (rota.exibirEm || 'ambos'))?.label || 'Fretes e Passagens'}
                 </p>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                {!readOnly ? <div className="mt-4 flex flex-wrap gap-2">
                   <Button type="button" variant="secondary" onClick={() => iniciarEdicao(rota)} disabled={busy}>
                     Editar
                   </Button>
@@ -438,7 +440,7 @@ export default function RotasValores() {
                       Excluir
                     </Button>
                   ) : null}
-                </div>
+                </div> : null}
               </div>
             ))}
 

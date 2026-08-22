@@ -35,7 +35,7 @@ O perfil `gestor` administra apenas a empresa vinculada ao seu usuario e pode ac
 
 ## Superadmin no computador
 
-O perfil `superadmin` possui acesso central a empresas, usuarios, logs e aos dados operacionais no computador. Ele tambem pode entrar em `/terminal`, recebendo nesse ambiente o mesmo menu operacional do operador. O perfil gestor nao pode entrar pelo ambiente `/terminal`.
+O perfil `superadmin` possui acesso central a empresas, usuarios, logs e aos dados operacionais no computador. No ambiente `/terminal`, ele recebe as operacoes do operador e tambem pode consultar linhas/horarios, terminais, embarcacoes, rotas e tarifas. Esses cadastros ficam em modo somente leitura na maquineta; alteracoes continuam exclusivas do computador. O perfil gestor nao pode entrar pelo ambiente `/terminal`.
 
 ## Seguranca
 

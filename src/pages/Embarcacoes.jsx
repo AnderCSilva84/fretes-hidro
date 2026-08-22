@@ -15,6 +15,7 @@ import {
   updateCollectionDocument,
 } from '../services/firebase.js'
 import { readFileAsDataUrl } from '../utils/fileDataUrl.js'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 
 const initialForm = {
   nome: '',
@@ -35,6 +36,7 @@ function getLinhaLabel(rota) {
 
 export default function Embarcacoes() {
   const { user } = useAuth()
+  const readOnly = isTerminalEnvironment()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
   const { items: empresas } = useCollectionOnce('empresas')
@@ -287,7 +289,7 @@ export default function Embarcacoes() {
     <Layout title="Cadastro de embarcacoes" subtitle="Cadastro da frota usada nas rotas hidroviarias." icon={<BoatIcon className="h-6 w-6" />}>
       <PageShell title="Embarcacoes cadastradas" subtitle="Defina a frota e as linhas em que cada embarcacao pode operar." icon={<BoatIcon className="h-6 w-6" />}>
         <div className="space-y-6">
-          <div className="rounded-[1.7rem] border border-blue-100 bg-white p-4 shadow-[0_12px_30px_rgba(28,99,231,0.05)] md:p-5">
+          {!readOnly ? <div className="rounded-[1.7rem] border border-blue-100 bg-white p-4 shadow-[0_12px_30px_rgba(28,99,231,0.05)] md:p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#1657d8]">Cadastro</p>
@@ -380,7 +382,7 @@ export default function Embarcacoes() {
                 ) : null}
               </div>
             </form>
-          </div>
+          </div> : null}
 
           <form className="rounded-[1.5rem] border border-blue-100 bg-blue-50/60 p-4" onSubmit={handleSearch}>
             <div className="flex flex-col gap-3 md:flex-row md:items-end">
@@ -430,14 +432,14 @@ export default function Embarcacoes() {
                   <p className="mt-3 text-xs font-bold uppercase tracking-[0.18em] text-[#1657d8]">Linhas</p>
                   <p className="mt-1 text-sm text-slate-600">{linhas.length ? linhas.join(' • ') : 'Sem linhas vinculadas'}</p>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  {!readOnly ? <div className="mt-4 flex flex-wrap gap-2">
                     <Button type="button" variant="secondary" onClick={() => iniciarEdicao(embarcacao)} disabled={busy}>
                       Editar
                     </Button>
                     <Button type="button" variant="danger" onClick={() => excluir(embarcacao)} disabled={busy}>
                       Excluir
                     </Button>
-                  </div>
+                  </div> : null}
                 </div>
               )
             })}

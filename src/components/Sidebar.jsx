@@ -62,6 +62,7 @@ export default function Sidebar({ open = false, onClose }) {
   const canAccessPassagens = hasPassagemAccess(user)
   const terminalEnvironment = isTerminalEnvironment()
   const managementAccess = canAccessManagement(user) && !terminalEnvironment
+  const terminalSuperadminReadAccess = terminalEnvironment && Boolean(user?.rootSuperadmin || user?.perfil === 'superadmin')
 
   const dashboardItems = managementAccess ? [{ to: '/dashboard', label: 'Dashboard', icon: DashboardIcon }] : []
 
@@ -83,7 +84,7 @@ export default function Sidebar({ open = false, onClose }) {
     : []
 
   const sharedItems = [
-    ...(managementAccess
+    ...(managementAccess || terminalSuperadminReadAccess
       ? [
           { to: '/viagens', label: 'Linhas e Horarios', icon: BoatIcon },
           { to: '/terminais', label: 'Terminais', icon: PinIcon },

@@ -7,6 +7,7 @@ import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
 import { criarProgramacaoViagem, listarProgramacoesViagemPage } from '../services/firebase.js'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 
 const initialForm = {
   rotaId: '',
@@ -24,6 +25,7 @@ function parseCapacidade(embarcacao) {
 
 export default function Viagens() {
   const { user } = useAuth()
+  const readOnly = isTerminalEnvironment()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
   const { items: rotas } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
@@ -177,7 +179,7 @@ export default function Viagens() {
   return (
     <Layout title="Programacao de viagens" subtitle="Cadastre a embarcacao fixa por linha e seus horarios recorrentes." icon={<BoatIcon className="h-6 w-6" />}>
       <div className="space-y-6">
-        <PageShell title="Linha fixa com embarcacao" subtitle="A viagem do dia passa a ser aberta automaticamente na venda." icon={<BoatIcon className="h-6 w-6" />}>
+        {!readOnly ? <PageShell title="Linha fixa com embarcacao" subtitle="A viagem do dia passa a ser aberta automaticamente na venda." icon={<BoatIcon className="h-6 w-6" />}>
           <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
             <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
               <span>Rota</span>
@@ -241,7 +243,7 @@ export default function Viagens() {
               </Button>
             </div>
           </form>
-        </PageShell>
+        </PageShell> : null}
 
         <PageShell title="Programacoes cadastradas" subtitle="Base fixa usada para abrir as viagens do dia automaticamente." icon={<BoatIcon className="h-6 w-6" />}>
           <div className="space-y-3">

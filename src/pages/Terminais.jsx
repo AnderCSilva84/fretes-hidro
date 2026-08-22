@@ -9,6 +9,7 @@ import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
 import { addCollectionDocument, deleteCollectionDocument, listCollectionPage, searchCollectionByField, updateCollectionDocument } from '../services/firebase.js'
 import { readFileAsDataUrl } from '../utils/fileDataUrl.js'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 
 const PAGE_SIZE = 12
 
@@ -26,6 +27,7 @@ const initialForm = {
 
 export default function Terminais() {
   const { user } = useAuth()
+  const readOnly = isTerminalEnvironment()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
   const { items: empresas } = useCollectionOnce('empresas')
@@ -268,7 +270,7 @@ export default function Terminais() {
   return (
     <Layout title="Cadastro de terminais" subtitle="Organize os pontos de postagem e destino com imagem e localizacao georeferenciada." icon={<PinIcon className="h-6 w-6" />}>
       <div className="space-y-6">
-        <PageShell title="Novo terminal" subtitle="Cadastre o terminal com dados visuais e coordenadas para uso no dashboard." icon={<PinIcon className="h-6 w-6" />}>
+        {!readOnly ? <PageShell title="Novo terminal" subtitle="Cadastre o terminal com dados visuais e coordenadas para uso no dashboard." icon={<PinIcon className="h-6 w-6" />}>
           <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
             <Input className="md:col-span-2" label="Nome" value={form.nome} onChange={(event) => setForm((current) => ({ ...current, nome: event.target.value }))} required />
             <Input label="Cidade" value={form.cidade} onChange={(event) => setForm((current) => ({ ...current, cidade: event.target.value }))} />
@@ -332,7 +334,7 @@ export default function Terminais() {
               ) : null}
             </div>
           </form>
-        </PageShell>
+        </PageShell> : null}
 
         <PageShell title="Terminais cadastrados" subtitle="Bases da empresa com consulta rapida, foto e coordenadas." icon={<PinIcon className="h-6 w-6" />}>
           <form className="rounded-[1.5rem] border border-blue-100 bg-blue-50/60 p-4" onSubmit={handleSearch}>
@@ -371,14 +373,14 @@ export default function Terminais() {
                     {terminal.latitude ?? terminal.lat ? `${terminal.latitude ?? terminal.lat}, ${terminal.longitude ?? terminal.lng}` : 'Sem coordenadas'}
                   </p>
                   <p className="text-sm text-slate-500">{terminal.empresaNome || 'Sem empresa vinculada'}</p>
-                  <div className="flex flex-wrap gap-2 pt-2">
+                  {!readOnly ? <div className="flex flex-wrap gap-2 pt-2">
                     <Button type="button" variant="secondary" onClick={() => iniciarEdicao(terminal)} disabled={busy}>
                       Editar
                     </Button>
                     <Button type="button" variant="danger" onClick={() => excluir(terminal)} disabled={busy}>
                       Excluir
                     </Button>
-                  </div>
+                  </div> : null}
                 </div>
               </div>
             ))}

@@ -4,7 +4,7 @@ import useAuth from '../context/useAuth.js'
 import { canAccessManagement, canUseEnvironment, getDefaultHomeRoute, hasModuleAccess } from '../utils/accessControl.js'
 import { APP_ENVIRONMENTS, readAppEnvironment } from '../utils/appEnvironment.js'
 
-export default function ProtectedRoute({ requiredPerfil = null, requiredModule = null, requiredEnvironment = null, requiredManagement = false }) {
+export default function ProtectedRoute({ requiredPerfil = null, requiredModule = null, requiredEnvironment = null, requiredManagement = false, allowTerminalSuperadmin = false }) {
   const { ready, user } = useAuth()
   const environment = readAppEnvironment()
 
@@ -20,7 +20,11 @@ export default function ProtectedRoute({ requiredPerfil = null, requiredModule =
     return <Navigate to="/terminal" replace state={{ environmentError: 'O perfil gestor deve acessar pelo computador.' }} />
   }
 
-  if (requiredEnvironment && environment !== requiredEnvironment) {
+  const terminalSuperadminException = allowTerminalSuperadmin
+    && environment === APP_ENVIRONMENTS.TERMINAL
+    && (user?.rootSuperadmin || user?.perfil === 'superadmin')
+
+  if (requiredEnvironment && environment !== requiredEnvironment && !terminalSuperadminException) {
     return <Navigate to={getDefaultHomeRoute(user, environment)} replace />
   }
 

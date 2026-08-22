@@ -42,6 +42,7 @@ import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
 import { enrichUserModuleAccess, normalizeModuleAccess } from '../utils/accessControl.js'
 import { DEFAULT_EMPRESA, ROOT_SUPERADMIN_EMAIL, SYSTEM_NAME, isRootSuperadminEmail, normalizeEmail } from '../utils/systemConfig.js'
 import { isTarifaAntecipada } from '../utils/tarifaUtils.js'
+import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 import { getIndexedFieldName, normalizeSearchValue, prepareCollectionPayload } from './searchNormalization.js'
 import { calcularHorarioChegada, gerarCodigoPassagem, normalizarDocumento } from '../utils/passagemUtils.js'
 import { getWeekdayLabelBR } from '../utils/date.js'
@@ -676,6 +677,14 @@ function isAdminSummaryCollection(collectionName) {
   return ['clientes', 'terminais'].includes(collectionName)
 }
 
+function assertManagementWriteAllowed(collectionName) {
+  const managementCollections = ['terminais', 'embarcacoes', 'rotasValores', 'programacoesViagem']
+
+  if (isTerminalEnvironment() && managementCollections.includes(collectionName)) {
+    throw new Error('No terminal, estes dados estao disponiveis somente para consulta. Use o computador para alterar cadastros.')
+  }
+}
+
 function shouldRestrictByEmpresa(collectionName) {
   return ['clientes', 'terminais', 'embarcacoes', 'rotasValores', 'encomendas', 'movimentacoes', 'caixa', 'viagens', 'programacoesViagem', 'passageiros', 'passagens', 'checkins'].includes(collectionName)
 }
@@ -1267,6 +1276,7 @@ export async function searchCollectionByField(collectionName, fieldName, searchT
 }
 
 export async function addCollectionDocument(collectionName, payload) {
+  assertManagementWriteAllowed(collectionName)
   const preparedPayload = prepareCollectionPayload(collectionName, enrichPayloadWithEmpresa(payload))
 
   if (isConfigured && db) {
@@ -1309,6 +1319,7 @@ export async function addCollectionDocument(collectionName, payload) {
 }
 
 export async function updateCollectionDocument(collectionName, documentId, updates) {
+  assertManagementWriteAllowed(collectionName)
   const preparedUpdates = prepareCollectionPayload(collectionName, enrichPayloadWithEmpresa(updates))
 
   if (isConfigured && db) {
@@ -1325,6 +1336,7 @@ export async function updateCollectionDocument(collectionName, documentId, updat
 }
 
 export async function deleteCollectionDocument(collectionName, documentId) {
+  assertManagementWriteAllowed(collectionName)
   if (isConfigured && db) {
     if (collectionName === 'caixa') {
       const caixaRef = doc(db, collectionName, documentId)
@@ -2847,6 +2859,7 @@ export async function listarViagens({ empresaId = '', empresaNome = '', status =
 }
 
 export async function criarProgramacaoViagem(dados) {
+  assertManagementWriteAllowed('programacoesViagem')
   const agora = new Date().toISOString()
   const horariosSaida = normalizarListaHorarios(dados.horariosSaida)
 
