@@ -95,6 +95,10 @@ const seedStore = {
       email: ROOT_SUPERADMIN_EMAIL,
       endereco: '',
       observacoes: 'Empresa principal cadastrada para operacao inicial do sistema.',
+      corPrimaria: '#0f4da5',
+      corSecundaria: '#072d67',
+      corDestaque: '#2f9e44',
+      logoUrl: '',
       ativo: true,
     },
   ],
@@ -147,11 +151,40 @@ const seedStore = {
     },
   ],
   terminais: [
-    { id: 't1', nome: 'Terminal Hidroviário de Belém', cidade: 'Belém' },
-    { id: 't2', nome: 'Terminal de Cametá', cidade: 'Cametá' },
+    {
+      id: 't1',
+      nome: 'THT Tamandaré',
+      cidade: 'Belém',
+      endereco: 'Av. Almirante Tamandaré',
+      latitude: -1.45056,
+      longitude: -48.50334,
+      lat: -1.45056,
+      lng: -48.50334,
+      empresaId: DEFAULT_EMPRESA.id,
+      empresaNome: DEFAULT_EMPRESA.nome,
+    },
+    {
+      id: 't2',
+      nome: 'Terminal de Cametá',
+      cidade: 'Cametá',
+      endereco: 'Orla de Cametá',
+      latitude: -2.24431,
+      longitude: -49.49789,
+      lat: -2.24431,
+      lng: -49.49789,
+      empresaId: DEFAULT_EMPRESA.id,
+      empresaNome: DEFAULT_EMPRESA.nome,
+    },
   ],
   embarcacoes: [
-    { id: 'e1', nome: 'Balsa Marajoara', identificacao: 'BLS-01', capacidade: '12t' },
+    {
+      id: 'e1',
+      nome: 'Balsa Marajoara',
+      identificacao: 'BLS-01',
+      capacidade: '12t',
+      empresaId: DEFAULT_EMPRESA.id,
+      empresaNome: DEFAULT_EMPRESA.nome,
+    },
   ],
   rotasValores: [
     {
@@ -283,6 +316,15 @@ function migrateStore(store) {
     ? nextStore.empresas
     : structuredClone(seedStore.empresas || [])
 
+  nextStore.empresas = nextStore.empresas.map((item) => ({
+    ...item,
+    corPrimaria: item.corPrimaria || '#0f4da5',
+    corSecundaria: item.corSecundaria || '#072d67',
+    corDestaque: item.corDestaque || '#2f9e44',
+    logoUrl: item.logoUrl || item.logoDataUrl || '',
+    ativo: item.ativo !== false,
+  }))
+
   nextStore.logsUso = Array.isArray(nextStore.logsUso) ? nextStore.logsUso : []
 
   nextStore.usuarios = (nextStore.usuarios || []).map((item) => ({
@@ -319,11 +361,17 @@ function migrateStore(store) {
   nextStore.terminais = (nextStore.terminais || []).map((item) => ({
     ...preencherEmpresaPadrao(item),
     nomeBusca: item.nomeBusca || normalizeSearchValue(item.nome),
+    latitude: Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : (Number.isFinite(Number(item.lat)) ? Number(item.lat) : ''),
+    longitude: Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : (Number.isFinite(Number(item.lng)) ? Number(item.lng) : ''),
+    lat: Number.isFinite(Number(item.lat)) ? Number(item.lat) : (Number.isFinite(Number(item.latitude)) ? Number(item.latitude) : ''),
+    lng: Number.isFinite(Number(item.lng)) ? Number(item.lng) : (Number.isFinite(Number(item.longitude)) ? Number(item.longitude) : ''),
+    imagemUrl: item.imagemUrl || item.imagemDataUrl || '',
   }))
 
   nextStore.embarcacoes = (nextStore.embarcacoes || []).map((item) => ({
     ...preencherEmpresaPadrao(item),
     nomeBusca: item.nomeBusca || normalizeSearchValue(item.nome),
+    imagemUrl: item.imagemUrl || item.imagemDataUrl || '',
   }))
 
   nextStore.rotasValores = (nextStore.rotasValores || []).map((item) => {
@@ -2198,8 +2246,8 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
         ativo: Boolean(ativo),
         acessoFretes: normalizedModules.acessoFretes,
         acessoPassagens: normalizedModules.acessoPassagens,
-        empresaId: normalizedPerfil === 'operador' ? empresaId || '' : '',
-        empresaNome: normalizedPerfil === 'operador' ? empresaNome || '' : SYSTEM_NAME,
+        empresaId: normalizedPerfil === 'superadmin' ? '' : empresaId || '',
+        empresaNome: normalizedPerfil === 'superadmin' ? SYSTEM_NAME : empresaNome || '',
         criadoEm: new Date().toISOString(),
       }
 
@@ -2250,8 +2298,8 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
     ativo: Boolean(ativo),
     acessoFretes: normalizedModules.acessoFretes,
     acessoPassagens: normalizedModules.acessoPassagens,
-    empresaId: normalizedPerfil === 'operador' ? empresaId || '' : '',
-    empresaNome: normalizedPerfil === 'operador' ? empresaNome || '' : SYSTEM_NAME,
+    empresaId: normalizedPerfil === 'superadmin' ? '' : empresaId || '',
+    empresaNome: normalizedPerfil === 'superadmin' ? SYSTEM_NAME : empresaNome || '',
     criadoEm: new Date().toISOString(),
   }
 
@@ -2271,8 +2319,8 @@ export async function criarUsuario({ nome, email, senha, perfil = 'operador', at
 export async function atualizarUsuario(documentId, updates, actorUser = null) {
   const normalizedNome = String(updates?.nome || '').trim()
   const normalizedPerfil = String(updates?.perfil || 'operador').trim().toLowerCase()
-  const normalizedEmpresaId = normalizedPerfil === 'operador' ? String(updates?.empresaId || '') : ''
-  const normalizedEmpresaNome = normalizedPerfil === 'operador' ? String(updates?.empresaNome || '') : SYSTEM_NAME
+  const normalizedEmpresaId = normalizedPerfil === 'superadmin' ? '' : String(updates?.empresaId || '')
+  const normalizedEmpresaNome = normalizedPerfil === 'superadmin' ? SYSTEM_NAME : String(updates?.empresaNome || '')
   const actorIsRoot = isRootSuperadminEmail(actorUser?.email)
 
   if (!normalizedNome) {

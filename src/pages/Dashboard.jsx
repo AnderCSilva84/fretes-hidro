@@ -4,6 +4,7 @@ import { DashboardIcon, ListIcon } from '../components/AppIcons.jsx'
 import Button from '../components/Button.jsx'
 import Card from '../components/Card.jsx'
 import Layout from '../components/Layout.jsx'
+import NetworkMapCard from '../components/NetworkMapCard.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import { getPassagensResumo, listCaixaEntries, listCollectionOnce } from '../services/firebase.js'
@@ -152,6 +153,8 @@ export default function Dashboard() {
     diasMaiorMovimentoChart: [],
     horariosPicoChart: [],
   })
+  const [terminaisMapa, setTerminaisMapa] = useState([])
+  const [rotasMapa, setRotasMapa] = useState([])
   const effectiveStartDate = startDateFilter || endDateFilter || todayKey
   const effectiveEndDate = endDateFilter || startDateFilter || todayKey
   const periodStart = useMemo(() => new Date(`${effectiveStartDate}T00:00:00`), [effectiveStartDate])
@@ -179,7 +182,7 @@ export default function Dashboard() {
     const empresaNome = user?.empresaNome || ''
 
     async function carregarDashboard() {
-      const [caixaResumoResult, passagensResumoResult, encomendasResult, clientesResult, terminaisResult] = await Promise.allSettled([
+      const [caixaResumoResult, passagensResumoResult, encomendasResult, clientesResult, terminaisResult, rotasResult] = await Promise.allSettled([
         listCaixaEntries({ dataInicial: effectiveStartDate, dataFinal: effectiveEndDate, maxResults: 2000, empresaId, empresaNome }),
         canAccessPassagens
           ? getPassagensResumo({ empresaId, empresaNome, dataInicial: effectiveStartDate, dataFinal: effectiveEndDate })
@@ -187,6 +190,7 @@ export default function Dashboard() {
         canAccessFretes ? listCollectionOnce('encomendas', { empresaId, empresaNome }) : Promise.resolve([]),
         canAccessFretes ? listCollectionOnce('clientes', { empresaId, empresaNome }) : Promise.resolve([]),
         listCollectionOnce('terminais', { empresaId, empresaNome }),
+        listCollectionOnce('rotasValores', { empresaId, empresaNome }),
       ])
 
       if (!active) {
@@ -213,6 +217,10 @@ export default function Dashboard() {
         reportRuntimeError('Dashboard.listCollectionOnce.terminais', terminaisResult.reason, { empresaId, empresaNome })
       }
 
+      if (rotasResult.status === 'rejected') {
+        reportRuntimeError('Dashboard.listCollectionOnce.rotasValores', rotasResult.reason, { empresaId, empresaNome })
+      }
+
       const caixaResumo = caixaResumoResult.status === 'fulfilled'
         ? getCaixaResumoFromItems(filterCaixaItemsByModuleAccess(caixaResumoResult.value, user))
         : null
@@ -222,10 +230,24 @@ export default function Dashboard() {
       const encomendas = encomendasResult.status === 'fulfilled' ? encomendasResult.value : []
       const clientes = clientesResult.status === 'fulfilled' ? clientesResult.value : []
       const terminais = terminaisResult.status === 'fulfilled' ? terminaisResult.value : []
+      const rotas = rotasResult.status === 'fulfilled' ? rotasResult.value : []
       const encomendasFiltradas = encomendas.filter((item) => isWithinPeriod(item?.criadoEm || item?.atualizadoEm, periodStart, periodEnd))
       const clientesFiltrados = clientes.filter((item) => isWithinPeriod(item?.criadoEm || item?.atualizadoEm, periodStart, periodEnd))
       const terminaisFiltrados = terminais.filter((item) => isWithinPeriod(item?.criadoEm || item?.atualizadoEm, periodStart, periodEnd))
       const freteMetrics = getEncomendasDashboardMetrics(encomendasFiltradas)
+      const nomesTerminaisOperados = new Set(
+        rotas.flatMap((rota) => [
+          rota.terminalOrigem || '',
+          ...(Array.isArray(rota.terminaisDestino) && rota.terminaisDestino.length ? rota.terminaisDestino : [rota.terminalDestino || '']),
+        ])
+          .map((item) => String(item || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+
+      setTerminaisMapa(
+        terminais.filter((item) => nomesTerminaisOperados.has(String(item.nome || '').trim().toLowerCase())),
+      )
+      setRotasMapa(rotas)
 
       setMetrics({
         encomendas: Number(encomendasFiltradas.length || 0),
@@ -417,6 +439,14 @@ export default function Dashboard() {
             </div>
           </section>
         ) : null}
+
+        <section className="space-y-5">
+          <SectionHeader
+            eyebrow="Terminais"
+            title="Mapa da operacao por empresa"
+          />
+          <NetworkMapCard terminais={terminaisMapa} rotas={rotasMapa} />
+        </section>
 
         <PageShell
           title="Atalhos rapidos"

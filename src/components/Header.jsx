@@ -1,7 +1,9 @@
 import Button from './Button.jsx'
+import useBranding from '../context/useBranding.js'
 import { SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
 
 export default function Header({ title, icon, onMenuClick, onLogout, user }) {
+  const { company, branding } = useBranding()
   const empresaAtual = getEmpresaAtual(user)
   const nomeExibido = user?.impersonationActive
     ? user?.impersonatedBy?.nome || user?.impersonatedBy?.email || 'Superadmin'
@@ -13,8 +15,13 @@ export default function Header({ title, icon, onMenuClick, onLogout, user }) {
       : 'Acesso institucional'
 
   return (
-    <header className="sticky top-0 z-20 overflow-hidden rounded-b-[2rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] text-white shadow-[0_16px_36px_rgba(10,45,97,0.26)]">
-      <div className="px-4 pb-4 pt-4 sm:px-5">
+    <header
+      className="app-header sticky top-0 z-20 overflow-hidden rounded-b-[2rem] text-white shadow-[0_16px_36px_rgba(10,45,97,0.26)]"
+      style={{
+        background: 'linear-gradient(135deg, var(--brand-secondary) 0%, var(--brand-primary) 45%, var(--brand-secondary) 100%)',
+      }}
+    >
+      <div className="app-header-inner px-4 pb-4 pt-4 sm:px-5">
         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
           <div className="flex items-start gap-3 lg:min-w-[8rem]">
             <button
@@ -49,15 +56,15 @@ export default function Header({ title, icon, onMenuClick, onLogout, user }) {
           </div>
         </div>
 
-        <div className="mt-3 min-w-0 text-center">
+        <div className="app-header-title mt-3 min-w-0 text-center">
           <div className="mx-auto max-w-3xl">
             <div className="flex items-center justify-center gap-3">
               <img
-                src={SYSTEM_ICON_SRC}
-                alt={SYSTEM_NAME}
+                src={branding.logoUrl || SYSTEM_ICON_SRC}
+                alt={company?.nome || SYSTEM_NAME}
                 className="h-12 w-12 scale-[1.15] rounded-[1.35rem] border border-white/35 bg-white object-cover p-1.5 shadow-[0_8px_20px_rgba(15,23,42,0.16)] sm:h-[3.6rem] sm:w-[3.6rem]"
               />
-              <p className="text-sm font-bold uppercase tracking-[0.24em] text-blue-100 sm:text-[1.45rem] sm:tracking-[0.28em]">{SYSTEM_NAME}</p>
+              <p className="text-sm font-bold uppercase tracking-[0.24em] text-blue-100 sm:text-[1.45rem] sm:tracking-[0.28em]">{company?.nome || SYSTEM_NAME}</p>
             </div>
             <h1 className="text-[1.45rem] font-bold tracking-[-0.04em] sm:text-[1.75rem]">{title}</h1>
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/95 backdrop-blur">

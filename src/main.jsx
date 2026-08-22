@@ -5,6 +5,7 @@ import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
+import { BrandingProvider } from './context/BrandingContext.jsx'
 
 if (window.location.hash.startsWith('#/')) {
   const destino = window.location.hash.slice(1)
@@ -21,7 +22,9 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <BrandingProvider>
+          <App />
+        </BrandingProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

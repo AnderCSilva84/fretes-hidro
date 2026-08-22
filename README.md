@@ -55,6 +55,12 @@ Detalhes de configuracao e contrato do helper:
 
 - [docs/impressao-termica-windows.md](./docs/impressao-termica-windows.md)
 
+## Impressao termica na VT-Q2i (Android)
+
+O PWA reconhece Android e envia os bilhetes de 58 mm em ESC/POS para o RawBT. A configuracao da maquineta esta em:
+
+- [docs/impressao-termica-vt-q2i.md](./docs/impressao-termica-vt-q2i.md)
+
 ## Firebase
 
 O projeto já vem preparado para Firebase Hosting com `firebase.json` e `.firebaserc`.

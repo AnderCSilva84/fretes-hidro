@@ -454,7 +454,7 @@ export default function Usuarios() {
                     empresaNome: empresaSelecionada?.nome || '',
                   })
                 }}
-                disabled={form.perfil !== 'operador'}
+                disabled={form.perfil === 'superadmin'}
               >
                 <option value="">Selecione a empresa</option>
                 {empresas.map((empresa) => (
@@ -495,7 +495,7 @@ export default function Usuarios() {
                 </label>
               </div>
               <p className="mt-3 text-xs text-slate-500">
-                Usuarios nao-superadmin agora precisam ter empresa vinculada.
+                Usuarios admin e operador precisam estar vinculados a uma empresa.
               </p>
             </div>
 

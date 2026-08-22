@@ -4,6 +4,7 @@ import { formatarBilheteTextoTermico } from './passagemUtils.js'
 const THERMAL_PRINT_MESSAGE_TYPE = 'navia-thermal-print'
 const THERMAL_PRINT_AGENT_URL_STORAGE_KEY = 'navia-thermal-print-agent-url'
 const THERMAL_PRINT_MODE_STORAGE_KEY = 'navia-thermal-print-mode'
+const RAWBT_ANDROID_PACKAGE = 'ru.a402d.rawbtprinter'
 const DEFAULT_THERMAL_PRINT_AGENT_URL = String(import.meta.env.VITE_THERMAL_PRINT_AGENT_URL || 'http://127.0.0.1:18181').trim()
 const DEFAULT_THERMAL_PRINT_MODE = String(import.meta.env.VITE_THERMAL_PRINT_MODE || 'agent-first').trim().toLowerCase()
 const THERMAL_PRINT_AGENT_FAILURE_TTL_MS = 30 * 1000
@@ -41,6 +42,103 @@ function shouldTryThermalPrintAgent() {
   }
 
   return Boolean(readThermalPrintAgentUrl())
+}
+
+function isAndroidDevice() {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+
+  return /android/i.test(navigator.userAgent || '')
+}
+
+function shouldTryRawBt() {
+  const mode = readThermalPrintMode()
+
+  if (mode === 'browser-only' || mode === 'agent-only') {
+    return false
+  }
+
+  return isAndroidDevice()
+}
+
+function appendBytes(target, ...values) {
+  values.flat().forEach((value) => target.push(value & 0xff))
+}
+
+function encodeAscii(value) {
+  const normalized = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7e\n]/g, '?')
+
+  return Array.from(normalized, (character) => character.charCodeAt(0))
+}
+
+function appendQrCode(target, value) {
+  const qrValue = String(value || '').trim()
+
+  if (!qrValue) {
+    return
+  }
+
+  const data = encodeAscii(qrValue)
+  const storeLength = data.length + 3
+
+  appendBytes(target, [0x1b, 0x61, 0x01])
+  appendBytes(target, [0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00])
+  appendBytes(target, [0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x05])
+  appendBytes(target, [0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31])
+  appendBytes(target, [0x1d, 0x28, 0x6b, storeLength & 0xff, (storeLength >> 8) & 0xff, 0x31, 0x50, 0x30], data)
+  appendBytes(target, [0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30, 0x0a])
+  appendBytes(target, [0x1b, 0x61, 0x00])
+}
+
+function buildRawBtBytes(passagens) {
+  const bytes = []
+
+  passagens.forEach((passagem, index) => {
+    appendBytes(bytes, [0x1b, 0x40])
+    appendBytes(bytes, [0x1b, 0x61, 0x01, 0x1b, 0x45, 0x01])
+    appendBytes(bytes, encodeAscii('NAVIA\nBILHETE DE PASSAGEM\n'))
+    appendBytes(bytes, [0x1b, 0x45, 0x00, 0x1b, 0x61, 0x00])
+    appendBytes(bytes, encodeAscii(`--------------------------------\n${formatarBilheteTextoTermico(passagem).split('\n').slice(3).join('\n')}\n`))
+    appendQrCode(bytes, passagem?.bilheteUrl)
+    appendBytes(bytes, encodeAscii('\nGuarde este comprovante.\n\n\n\n'))
+
+    if (index < passagens.length - 1) {
+      appendBytes(bytes, encodeAscii('--------------------------------\n\n'))
+    }
+  })
+
+  return Uint8Array.from(bytes)
+}
+
+function bytesToBase64(bytes) {
+  let binary = ''
+  const chunkSize = 0x8000
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+
+  return window.btoa(binary)
+}
+
+function tryRawBtPrint(passagens) {
+  if (!shouldTryRawBt()) {
+    return false
+  }
+
+  const base64 = bytesToBase64(buildRawBtBytes(passagens))
+  const rawBtIntent = `intent:base64,${base64}#Intent;scheme=rawbt;package=${RAWBT_ANDROID_PACKAGE};end;`
+  const link = document.createElement('a')
+  link.href = rawBtIntent
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  return true
 }
 
 function shouldSkipThermalPrintAgentAttempt() {
@@ -518,6 +616,10 @@ export async function imprimirPassagensTermicas(passagens) {
   const itens = (Array.isArray(passagens) ? passagens : [passagens]).filter(Boolean)
 
   if (itens.length === 0) {
+    return null
+  }
+
+  if (tryRawBtPrint(itens)) {
     return null
   }
 

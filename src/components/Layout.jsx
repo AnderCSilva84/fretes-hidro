@@ -12,17 +12,33 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
-    const previousTouchAction = document.body.style.touchAction
+
+    if (!menuOpen) {
+      document.body.style.overflow = ''
+    }
 
     if (menuOpen) {
       document.body.style.overflow = 'hidden'
-      document.body.style.touchAction = 'none'
     }
 
     return () => {
       document.body.style.overflow = previousOverflow
-      document.body.style.touchAction = previousTouchAction
     }
+  }, [menuOpen])
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return undefined
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [menuOpen])
 
   if (immersive) {
@@ -36,7 +52,12 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.24),transparent_34%),linear-gradient(180deg,#eef5ff_0%,#dbeafe_100%)]">
+    <div
+      className="min-h-screen"
+      style={{
+        background: 'radial-gradient(circle at top, var(--brand-primary-soft), transparent 34%), linear-gradient(180deg, #eef5ff 0%, #dbeafe 100%)',
+      }}
+    >
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
 
       {menuOpen ? (
@@ -61,7 +82,7 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
         <ImpersonationBanner user={user} onStop={stopImpersonation} />
         <ConnectivityBanner />
 
-        <main className="flex-1 px-4 pb-8 pt-5 sm:px-5">
+        <main className="app-main flex-1 px-4 pb-8 pt-5 sm:px-5">
           <div className={`mx-auto w-full ${contentClassName || 'max-w-none'}`}>{children}</div>
           <SystemFooter className="mx-auto w-full px-2 pb-4 pt-8 xl:max-w-[80vw]" />
         </main>

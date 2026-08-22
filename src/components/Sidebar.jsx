@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import useAuth from '../context/useAuth.js'
+import useBranding from '../context/useBranding.js'
 import { getDefaultHomeRoute, hasFreteAccess, hasPassagemAccess } from '../utils/accessControl.js'
 import {
   BoatIcon,
@@ -23,7 +24,7 @@ function SidebarSection({ title, items, onClose }) {
   }
 
   return (
-    <section className="space-y-2">
+    <section className="sidebar-section space-y-2">
       <p className="px-2 text-[11px] font-bold uppercase tracking-[0.24em] text-slate-400">{title}</p>
       <div className="space-y-2">
         {items.map((item) => {
@@ -35,12 +36,13 @@ function SidebarSection({ title, items, onClose }) {
               to={item.to}
               onClick={onClose}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-                  isActive ? 'bg-[#1657d8] text-white shadow-panel' : 'bg-blue-50 text-slate-700 hover:bg-blue-100'
+                `sidebar-link flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                  isActive ? 'text-white shadow-panel' : 'bg-blue-50 text-slate-700 hover:bg-blue-100'
                 }`
               }
+              style={({ isActive }) => (isActive ? { background: 'var(--brand-primary)' } : undefined)}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/70 text-current">
+              <span className="sidebar-link-icon flex h-10 w-10 items-center justify-center rounded-2xl bg-white/70 text-current">
                 <Icon />
               </span>
               <span>{item.label}</span>
@@ -54,6 +56,7 @@ function SidebarSection({ title, items, onClose }) {
 
 export default function Sidebar({ open = false, onClose }) {
   const { user } = useAuth()
+  const { company, branding } = useBranding()
   const canAccessFretes = hasFreteAccess(user)
   const canAccessPassagens = hasPassagemAccess(user)
 
@@ -97,18 +100,35 @@ export default function Sidebar({ open = false, onClose }) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 h-screen w-[21rem] max-w-[90vw] overflow-y-auto overscroll-contain border-r border-blue-100 bg-white/98 p-5 pb-10 text-slate-900 shadow-2xl transition-transform duration-300 ${
+      aria-hidden={!open}
+      className={`app-sidebar fixed inset-y-0 left-0 z-30 h-screen w-[21rem] max-w-[90vw] overflow-y-auto overscroll-contain border-r border-blue-100 bg-white/98 p-5 pb-10 text-slate-900 shadow-2xl transition-transform duration-300 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
-      <div className="mb-6 rounded-[1.8rem] bg-[linear-gradient(135deg,#072d67_0%,#0f4da5_45%,#0a2d61_100%)] px-4 py-5 text-white shadow-panel">
+      <div className="sticky top-0 z-10 mb-2 flex justify-end pointer-events-none">
+        <button
+          type="button"
+          onClick={onClose}
+          className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-100 bg-white text-2xl leading-none text-slate-700 shadow-lg"
+          aria-label="Fechar menu"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+
+      <div
+        className="sidebar-brand mb-6 rounded-[1.8rem] px-4 py-5 text-white shadow-panel"
+        style={{
+          background: 'linear-gradient(135deg, var(--brand-secondary) 0%, var(--brand-primary) 45%, var(--brand-secondary) 100%)',
+        }}
+      >
         <div className="flex items-center gap-3">
           <img
-            src={SYSTEM_ICON_SRC}
-            alt={SYSTEM_NAME}
-            className="h-16 w-16 scale-[1.15] rounded-[1.7rem] border border-white/35 bg-white object-cover p-1.5 shadow-[0_14px_28px_rgba(15,23,42,0.22)] sm:h-[5.5rem] sm:w-[5.5rem]"
+            src={branding.logoUrl || SYSTEM_ICON_SRC}
+            alt={company?.nome || SYSTEM_NAME}
+            className="sidebar-logo h-16 w-16 scale-[1.15] rounded-[1.7rem] border border-white/35 bg-white object-cover p-1.5 shadow-[0_14px_28px_rgba(15,23,42,0.22)] sm:h-[5.5rem] sm:w-[5.5rem]"
           />
-          <h2 className="text-[2rem] font-bold tracking-[-0.03em] sm:text-5xl">{SYSTEM_NAME}</h2>
+          <h2 className="sidebar-name min-w-0 break-words text-[2rem] font-bold tracking-[-0.03em] sm:text-5xl">{company?.nome || SYSTEM_NAME}</h2>
         </div>
         <p className="mt-2 text-sm text-blue-100/85">
           Ambientes separados para fretes e passagens, com acesso por modulo.

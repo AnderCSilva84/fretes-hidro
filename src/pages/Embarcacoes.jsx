@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BoatIcon } from '../components/AppIcons.jsx'
 import Button from '../components/Button.jsx'
+import ImageUploadField from '../components/ImageUploadField.jsx'
 import Input from '../components/Input.jsx'
 import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
@@ -13,11 +14,13 @@ import {
   searchCollectionByField,
   updateCollectionDocument,
 } from '../services/firebase.js'
+import { readFileAsDataUrl } from '../utils/fileDataUrl.js'
 
 const initialForm = {
   nome: '',
   identificacao: '',
   capacidade: '',
+  imagemUrl: '',
   empresaId: '',
   empresaNome: '',
   rotasIds: [],
@@ -117,6 +120,7 @@ export default function Embarcacoes() {
       nome: item.nome || '',
       identificacao: item.identificacao || '',
       capacidade: item.capacidade || '',
+      imagemUrl: item.imagemUrl || item.imagemDataUrl || '',
       empresaId: item.empresaId || '',
       empresaNome: item.empresaNome || '',
       rotasIds: Array.isArray(item.rotasIds) ? item.rotasIds : [],
@@ -155,6 +159,8 @@ export default function Embarcacoes() {
         nome: form.nome.trim(),
         identificacao: form.identificacao.trim(),
         capacidade: form.capacidade.trim(),
+        imagemUrl: form.imagemUrl,
+        imagemDataUrl: form.imagemUrl,
         empresaId: form.empresaId,
         empresaNome: form.empresaNome,
         rotasIds: form.rotasIds,
@@ -177,6 +183,18 @@ export default function Embarcacoes() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function handleImageChange(event) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    const dataUrl = await readFileAsDataUrl(file)
+    setForm((current) => ({ ...current, imagemUrl: dataUrl }))
+    event.target.value = ''
   }
 
   async function excluir(item) {
@@ -319,6 +337,16 @@ export default function Embarcacoes() {
               </label>
 
               <div className="md:col-span-2">
+                <ImageUploadField
+                  label="Imagem da embarcacao"
+                  value={form.imagemUrl}
+                  hint="Cadastre uma foto para identificar a frota visualmente."
+                  onFileChange={handleImageChange}
+                  onClear={() => setForm((current) => ({ ...current, imagemUrl: '' }))}
+                />
+              </div>
+
+              <div className="md:col-span-2">
                 <div className="mb-3">
                   <p className="text-sm font-semibold text-slate-700">Linhas atendidas</p>
                   <p className="text-xs text-slate-500">Selecione as linhas em que esta embarcacao pode ser usada.</p>
@@ -388,6 +416,13 @@ export default function Embarcacoes() {
                   key={embarcacao.id}
                   className="rounded-[1.6rem] border border-blue-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]"
                 >
+                  {embarcacao.imagemUrl || embarcacao.imagemDataUrl ? (
+                    <img
+                      src={embarcacao.imagemUrl || embarcacao.imagemDataUrl}
+                      alt={embarcacao.nome}
+                      className="mb-3 h-36 w-full rounded-[1.2rem] object-cover"
+                    />
+                  ) : null}
                   <p className="font-semibold text-slate-900">{embarcacao.nome}</p>
                   <p className="text-sm text-slate-500">{embarcacao.empresaNome || 'Sem empresa'}</p>
                   <p className="text-sm text-slate-500">{embarcacao.identificacao || 'Sem identificacao'}</p>
