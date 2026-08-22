@@ -60,6 +60,49 @@ textarea {
   touch-action: pan-y;
 }
 
+.app-button--primary {
+  border: 1px solid #0a2d61;
+  background-color: #1657d8;
+  background-image: linear-gradient(180deg, #1c63e7 0%, #1657d8 55%, #0a2d61 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(22, 87, 216, 0.28);
+}
+
+.app-button--secondary {
+  border: 2px solid #1657d8;
+  background-color: #dbeafe;
+  color: #0a2d61;
+  box-shadow: 0 8px 18px rgba(28, 99, 231, 0.14);
+}
+
+.app-button--ghost {
+  border: 1px solid #bfdbfe;
+  background-color: #ffffff;
+  color: #1657d8;
+}
+
+.app-button--success {
+  border: 1px solid #047857;
+  background-color: #059669;
+  color: #ffffff;
+}
+
+.app-button--danger {
+  border: 1px solid #be123c;
+  background-color: #e11d48;
+  color: #ffffff;
+}
+
+.app-button--primary:active,
+.app-button--primary:hover {
+  background-color: #0a2d61;
+}
+
+.app-button--secondary:active,
+.app-button--secondary:hover {
+  background-color: #bfdbfe;
+}
+
 @media (max-width: 430px) {
   .app-sidebar {
     width: min(20rem, calc(100vw - 2.75rem));
