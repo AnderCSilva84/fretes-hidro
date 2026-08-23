@@ -522,7 +522,7 @@ function setLocalUser(user) {
 }
 
 function mapDocs(snapshot) {
-  return snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }))
+  return snapshot.docs.map((docItem) => ({ ...docItem.data(), id: docItem.id }))
 }
 
 function isBrowserOffline() {
@@ -3227,7 +3227,7 @@ export async function getViagemById(viagemId, { empresaId = '', empresaNome = ''
       return null
     }
 
-    const item = { id: snapshot.id, ...snapshot.data() }
+    const item = { ...snapshot.data(), id: snapshot.id }
     return filterItemsByEmpresa([item], empresaId, empresaNome)[0] || null
   }
 
@@ -3464,6 +3464,25 @@ export async function encerrarCaixaPassagemComoSuperadmin(viagemId, actor = {}) 
   store.viagens = (store.viagens || []).map((item) => item.id === viagemId ? atualizada : item)
   writeStore(store)
   return atualizada
+}
+
+export async function excluirCaixaPendenteComoSuperadmin(viagemId) {
+  if (!viagemId) throw new Error('Caixa sem identificacao para exclusao.')
+
+  if (isConfigured && db) {
+    const viagemRef = doc(db, 'viagens', viagemId)
+    const snapshot = await getDoc(viagemRef)
+    if (!snapshot.exists()) throw new Error('O registro deste caixa nao foi encontrado.')
+    await deleteDoc(viagemRef)
+    return { id: viagemId }
+  }
+
+  const store = readStore()
+  const existe = (store.viagens || []).some((item) => item.id === viagemId)
+  if (!existe) throw new Error('O registro deste caixa nao foi encontrado no modo local.')
+  store.viagens = (store.viagens || []).filter((item) => item.id !== viagemId)
+  writeStore(store)
+  return { id: viagemId }
 }
 
 function compararDataDesc(left, right) {

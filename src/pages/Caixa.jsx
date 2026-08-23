@@ -4,7 +4,7 @@ import { ListIcon, MoneyIcon } from '../components/AppIcons.jsx'
 import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
-import { deleteCollectionDocument, deleteHistoricoCaixaPassagem, encerrarCaixaPassagemComoSuperadmin, getCollectionCount, listCaixaEntries, listCollectionOnce, listCollectionPage, listarCaixasPassagemPendentes, listarHistoricoCaixasPassagem, listarPassagensPorViagem, obterResumoVendaPassagemHorario } from '../services/firebase.js'
+import { deleteCollectionDocument, deleteHistoricoCaixaPassagem, encerrarCaixaPassagemComoSuperadmin, excluirCaixaPendenteComoSuperadmin, getCollectionCount, listCaixaEntries, listCollectionOnce, listCollectionPage, listarCaixasPassagemPendentes, listarHistoricoCaixasPassagem, listarPassagensPorViagem, obterResumoVendaPassagemHorario } from '../services/firebase.js'
 import { hasFreteAccess, hasPassagemAccess, isGestor } from '../utils/accessControl.js'
 import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 import { filterCaixaItemsByModuleAccess, getCaixaCategoria, getCaixaResumoFromItems, resumirCaixaPorCategoria } from '../utils/caixaAccess.js'
@@ -141,6 +141,7 @@ export default function Caixa() {
   const [loadingPendentes, setLoadingPendentes] = useState(Boolean(user?.rootSuperadmin))
   const [fechandoPendenteId, setFechandoPendenteId] = useState('')
   const [mensagemPendentes, setMensagemPendentes] = useState('')
+  const [excluindoPendenteId, setExcluindoPendenteId] = useState('')
   const caixa = filtrarCaixaPorOrigem(caixaBase, filtroOrigem)
   const resumoCategorias = resumirCaixaPorCategoria(caixa)
   const resumoCaixaFiltrado = getCaixaResumoFromItems(caixa)
@@ -179,6 +180,21 @@ export default function Caixa() {
       setMensagemPendentes(`Erro: ${error.message || 'Nao foi possivel encerrar o caixa pendente.'}`)
     } finally {
       setFechandoPendenteId('')
+    }
+  }
+
+  async function excluirCaixaPendente(item) {
+    setExcluindoPendenteId(item.id)
+    setMensagemPendentes('')
+    try {
+      await excluirCaixaPendenteComoSuperadmin(item.id)
+      setCaixasPendentes((current) => current.filter((caixaItem) => caixaItem.id !== item.id))
+      setMensagemPendentes('Caixa pendente excluido com sucesso.')
+    } catch (error) {
+      reportRuntimeError('Caixa.excluirCaixaPendente', error, { viagemId: item.id })
+      setMensagemPendentes(`Erro: ${error.message || 'Nao foi possivel excluir o caixa pendente.'}`)
+    } finally {
+      setExcluindoPendenteId('')
     }
   }
 
@@ -629,9 +645,10 @@ export default function Caixa() {
                     <p className="mt-1 text-sm text-slate-600">{item.origem || '-'} → {item.destino || '-'} • {item.dataViagem || 'Sem data'} {item.horarioSaida || ''}</p>
                     <p className="mt-1 text-xs font-semibold text-amber-800">Aberto em: {formatarData(item.caixaAbertoEm)} • Status: {item.status || 'Legado'}</p>
                   </div>
-                  <Button type="button" variant="danger" onClick={() => encerrarCaixaPendente(item)} disabled={fechandoPendenteId === item.id} className="w-full md:w-auto">
-                    {fechandoPendenteId === item.id ? 'Encerrando...' : 'Encerrar caixa'}
-                  </Button>
+                  <div className="flex w-full gap-2 md:w-auto">
+                    <Button type="button" variant="secondary" onClick={() => encerrarCaixaPendente(item)} disabled={fechandoPendenteId === item.id || excluindoPendenteId === item.id} className="flex-1 md:w-auto">{fechandoPendenteId === item.id ? 'Encerrando...' : 'Encerrar caixa'}</Button>
+                    <Button type="button" variant="danger" onClick={() => excluirCaixaPendente(item)} disabled={excluindoPendenteId === item.id || fechandoPendenteId === item.id} className="flex-1 md:w-auto">{excluindoPendenteId === item.id ? 'Excluindo...' : 'Excluir caixa'}</Button>
+                  </div>
                 </div>
               ))}
               {!loadingPendentes && caixasPendentes.length === 0 ? <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">Nenhum caixa pendente em nenhuma empresa.</div> : null}
