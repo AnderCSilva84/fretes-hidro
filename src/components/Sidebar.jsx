@@ -107,6 +107,7 @@ export default function Sidebar({ open = false, onClose }) {
     !terminalEnvironment && user?.perfil === 'superadmin'
       ? [
           ...(user?.rootSuperadmin ? [{ to: '/logs-uso', label: 'Logs de uso', icon: ClipboardIcon }] : []),
+          ...(user?.rootSuperadmin ? [{ to: '/migracao-dados', label: 'Migrar dados', icon: ClipboardIcon }] : []),
         ]
       : []
 

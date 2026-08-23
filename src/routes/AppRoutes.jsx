@@ -16,6 +16,7 @@ const Dashboard = lazyWithRetry(() => import('../pages/Dashboard.jsx'), 'dashboa
 const Embarcacoes = lazyWithRetry(() => import('../pages/Embarcacoes.jsx'), 'embarcacoes')
 const Encomendas = lazyWithRetry(() => import('../pages/Encomendas.jsx'), 'encomendas')
 const Empresas = lazyWithRetry(() => import('../pages/Empresas.jsx'), 'empresas')
+const MigracaoDados = lazyWithRetry(() => import('../pages/MigracaoDados.jsx'), 'migracao-dados')
 const LogsUso = lazyWithRetry(() => import('../pages/LogsUso.jsx'), 'logs-uso')
 const ManifestoViagem = lazyWithRetry(() => import('../pages/ManifestoViagem.jsx'), 'manifesto-viagem')
 const MapaEmbarcacao = lazyWithRetry(() => import('../pages/MapaEmbarcacao.jsx'), 'mapa-embarcacao')
@@ -85,6 +86,7 @@ export default function AppRoutes() {
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/empresas" element={<Empresas />} />
             <Route path="/logs-uso" element={<LogsUso />} />
+            <Route path="/migracao-dados" element={<MigracaoDados />} />
           </Route>
           <Route path="*" element={<HomeRedirect />} />
         </Routes>

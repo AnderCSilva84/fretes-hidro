@@ -81,6 +81,7 @@ if (isConfigured) {
 
 const storageKey = 'fretes-pwa-demo-store'
 const authKey = 'fretes-pwa-demo-user'
+const localMigrationKey = 'navia-firestore-migration-v1'
 const listeners = new Map()
 let authListeners = new Set()
 
@@ -540,6 +541,93 @@ export function getOfflineCapabilities() {
     localCacheEnabled: firestoreCacheEnabled,
     supportsQueuedWrites: Boolean(isConfigured && db && firestoreCacheEnabled),
   }
+}
+
+const LOCAL_MIGRATION_COLLECTIONS = [
+  'empresas',
+  'usuarios',
+  'clientes',
+  'terminais',
+  'embarcacoes',
+  'rotasValores',
+  'encomendas',
+  'viagens',
+  'programacoesViagem',
+  'passageiros',
+  'passagens',
+  'checkins',
+  'caixa',
+  'movimentacoes',
+  'logsUso',
+]
+
+function getLocalStoreForMigration() {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem(storageKey)
+  if (!raw) return null
+
+  try {
+    return migrateStore(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+export function getLocalMigrationSummary() {
+  const store = getLocalStoreForMigration()
+  const collections = Object.fromEntries(
+    LOCAL_MIGRATION_COLLECTIONS.map((name) => [name, Array.isArray(store?.[name]) ? store[name].length : 0]),
+  )
+
+  return {
+    available: Boolean(store),
+    firebaseConfigured: Boolean(isConfigured && db),
+    completed: typeof window !== 'undefined' ? window.localStorage.getItem(localMigrationKey) : null,
+    collections,
+    total: Object.values(collections).reduce((sum, count) => sum + count, 0),
+  }
+}
+
+function migrationDocumentId(collectionName, item, index) {
+  const explicitId = String(item?.id || item?.uid || '').trim()
+  if (explicitId) return explicitId
+  return `migrado-${collectionName}-${String(index + 1).padStart(6, '0')}`
+}
+
+export async function migrateLocalStoreToFirestore(actorUser) {
+  if (!isConfigured || !db) throw new Error('Firebase nao esta configurado neste deploy.')
+  if (!isRootSuperadminEmail(actorUser?.email)) throw new Error('Somente o superadmin principal pode migrar os dados locais.')
+
+  const store = getLocalStoreForMigration()
+  if (!store) throw new Error('Nenhum banco local foi encontrado neste dispositivo.')
+
+  const operations = []
+  for (const collectionName of LOCAL_MIGRATION_COLLECTIONS) {
+    const items = Array.isArray(store[collectionName]) ? store[collectionName] : []
+    items.forEach((item, index) => {
+      const documentId = migrationDocumentId(collectionName, item, index)
+      const payload = { ...item, id: documentId, migradoDoArmazenamentoLocal: true }
+      delete payload.senha
+      operations.push({ collectionName, documentId, payload })
+    })
+  }
+
+  const resumos = store.resumos && typeof store.resumos === 'object' ? Object.entries(store.resumos) : []
+  resumos.forEach(([documentId, item]) => {
+    operations.push({ collectionName: 'resumos', documentId, payload: { ...item, id: documentId, migradoDoArmazenamentoLocal: true } })
+  })
+
+  for (let offset = 0; offset < operations.length; offset += 400) {
+    const batch = writeBatch(db)
+    operations.slice(offset, offset + 400).forEach(({ collectionName, documentId, payload }) => {
+      batch.set(doc(db, collectionName, documentId), payload, { merge: true })
+    })
+    await batch.commit()
+  }
+
+  const completedAt = new Date().toISOString()
+  window.localStorage.setItem(localMigrationKey, completedAt)
+  return { total: operations.length, completedAt }
 }
 
 export function getOfflineSyncSummary() {
