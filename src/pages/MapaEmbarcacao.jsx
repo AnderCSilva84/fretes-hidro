@@ -111,7 +111,7 @@ export default function MapaEmbarcacao() {
   }, {}), [assentos])
   const modalidadesVisiveis = Object.entries(MODALIDADES).filter(([key]) => totais[key])
   const pedeIdentificacao = ['Gratuidade', 'Estudante', 'Idoso'].includes(tarifaTipo)
-  const caixaAberto = Boolean(viagem?.caixaAbertoEm && !viagem?.caixaFechadoEm && ['Aberta', 'Embarcando'].includes(viagem?.status))
+  const caixaAberto = Boolean(viagem?.caixaAbertoEm && !viagem?.caixaFechadoEm)
 
   async function abrirCaixa() {
     if (!viagem) return
@@ -140,7 +140,7 @@ export default function MapaEmbarcacao() {
     setOperandoCaixa(true)
     setError('')
     try {
-      await encerrarVendaPassagemHorario(viagem.id, { empresaId, empresaNome, operadorNome: user?.nome || user?.email || 'Operador' })
+      await encerrarVendaPassagemHorario(viagem.id, { empresaId, empresaNome, operadorNome: user?.nome || user?.email || 'Operador', confirmacaoManual: true })
       setViagem((current) => ({ ...current, status: 'Encerrada', caixaFechadoEm: new Date().toISOString() }))
       setSucesso('Caixa encerrado com sucesso.')
     } catch (runtimeError) {

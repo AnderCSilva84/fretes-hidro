@@ -11,6 +11,7 @@ import { filterCaixaItemsByModuleAccess, getCaixaCategoria, getCaixaResumoFromIt
 import { gerarCaixaPdf } from '../utils/gerarCaixaPdf.js'
 import { abrirResumoVendaHorarioPdf } from '../utils/resumoVendaHorarioPdf.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
+import { formatDateBR } from '../utils/date.js'
 import { isRootSuperadminUser } from '../utils/systemConfig.js'
 
 function normalizarData(valor) {
@@ -642,7 +643,7 @@ export default function Caixa() {
                 <div key={item.id} className="flex flex-col gap-3 rounded-[1.4rem] border border-amber-200 bg-amber-50 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="font-bold text-slate-950">{item.empresaNome || 'Empresa nao informada'} • {item.embarcacaoNome || 'Embarcacao nao informada'}</p>
-                    <p className="mt-1 text-sm text-slate-600">{item.origem || '-'} → {item.destino || '-'} • {item.dataViagem || 'Sem data'} {item.horarioSaida || ''}</p>
+                    <p className="mt-1 text-sm text-slate-600">{item.origem || '-'} → {item.destino || '-'} • {formatDateBR(item.dataViagem, 'Sem data')} {item.horarioSaida || ''}</p>
                     <p className="mt-1 text-xs font-semibold text-amber-800">Aberto em: {formatarData(item.caixaAbertoEm)} • Status: {item.status || 'Legado'}</p>
                   </div>
                   <div className="flex w-full gap-2 md:w-auto">
@@ -793,7 +794,7 @@ export default function Caixa() {
                           {(item.origem || '-') + ' - ' + (item.destino || '-')}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
-                          {item.embarcacaoNome || 'Embarcacao nao informada'} | {item.dataViagem || '-'} {item.horarioSaida || ''}
+                          {item.embarcacaoNome || 'Embarcacao nao informada'} | {formatDateBR(item.dataViagem)} {item.horarioSaida || ''}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
                           Abertura: {formatarData(item.caixaAbertoEm)} | Fechamento: {formatarData(item.caixaFechadoEm)}

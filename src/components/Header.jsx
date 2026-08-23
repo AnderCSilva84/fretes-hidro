@@ -2,7 +2,7 @@ import Button from './Button.jsx'
 import useBranding from '../context/useBranding.js'
 import { SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
 
-export default function Header({ title, icon, onMenuClick, onLogout, user }) {
+export default function Header({ title, icon, onMenuClick, onBack, onLogout, user }) {
   const { company, branding } = useBranding()
   const empresaAtual = getEmpresaAtual(user)
   const nomeExibido = user?.impersonationActive
@@ -32,6 +32,12 @@ export default function Header({ title, icon, onMenuClick, onLogout, user }) {
             >
               <MenuIcon />
             </button>
+
+            {onBack ? (
+              <button type="button" onClick={onBack} className="app-header-action flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/14 text-white backdrop-blur transition hover:bg-white/18" aria-label="Voltar">
+                <BackIcon />
+              </button>
+            ) : null}
 
             {icon ? (
               <div className="app-header-action flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/14 text-white backdrop-blur">
@@ -118,6 +124,10 @@ function MenuIcon() {
       <path d="M4 7h16M4 12h16M4 17h16" />
     </svg>
   )
+}
+
+function BackIcon() {
+  return <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /><path d="M9 12h10" /></svg>
 }
 
 function LogoutIcon() {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import useAuth from '../context/useAuth.js'
 import ConnectivityBanner from './ConnectivityBanner.jsx'
 import Header from './Header.jsx'
@@ -9,6 +10,8 @@ import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 
 export default function Layout({ title, subtitle, icon, children, immersive = false, contentClassName = '', containerClassName = '' }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const navigate = useNavigate()
+  const location = useLocation()
   const { user, logout, stopImpersonation } = useAuth()
   const terminalEnvironment = isTerminalEnvironment()
 
@@ -78,6 +81,10 @@ export default function Layout({ title, subtitle, icon, children, immersive = fa
           icon={icon}
           user={user}
           onMenuClick={() => setMenuOpen((value) => !value)}
+          onBack={location.pathname === '/' ? null : () => {
+            if (window.history.length > 1) navigate(-1)
+            else navigate('/')
+          }}
           onLogout={logout}
         />
 

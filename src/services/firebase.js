@@ -2810,38 +2810,9 @@ function isRegistroViagemPassagem(item) {
   return origemOperacao === 'passagens'
 }
 
-function getLocalIsoDate(value = new Date()) {
-  const date = value instanceof Date ? new Date(value) : new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 export function isCaixaPassagemAbertoAtivo(item, referenceDate = new Date()) {
-  if (!isRegistroViagemPassagem(item) || !item?.caixaAbertoEm || item?.caixaFechadoEm || !['Aberta', 'Embarcando'].includes(item?.status)) {
-    return false
-  }
-
-  const hojeIso = getLocalIsoDate(referenceDate)
-  const dataViagem = String(item?.dataViagem || '').trim()
-
-  if (dataViagem) {
-    return dataViagem >= hojeIso
-  }
-
-  const abertura = getDateFromUnknownValue(item?.caixaAbertoEm)
-
-  if (!abertura) {
-    return false
-  }
-
-  return getLocalIsoDate(abertura) >= hojeIso
+  void referenceDate
+  return isRegistroViagemPassagem(item) && Boolean(item?.caixaAbertoEm) && !item?.caixaFechadoEm
 }
 
 function isCaixaPassagemAberto(item) {
@@ -3323,6 +3294,10 @@ export async function abrirVendaPassagemHorario(dados) {
 export async function encerrarVendaPassagemHorario(viagemId, actor = {}) {
   if (!viagemId) {
     throw new Error('Selecione um horario para encerrar o caixa.')
+  }
+
+  if (!actor.confirmacaoManual) {
+    throw new Error('O caixa somente pode ser encerrado pelo clique manual em Encerrar caixa.')
   }
 
   const viagem = await getViagemById(viagemId, { empresaId: actor.empresaId || '', empresaNome: actor.empresaNome || '' })

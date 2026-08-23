@@ -666,6 +666,7 @@ export default function NovaPassagem() {
         empresaId,
         empresaNome,
         operadorNome: user?.nome || user?.displayName || user?.email || 'Operador',
+        confirmacaoManual: true,
       })
 
       await abrirResumoVendaHorarioPdf(resumoFechamento)

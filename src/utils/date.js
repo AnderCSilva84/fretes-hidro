@@ -34,7 +34,7 @@ export function formatDateBR(value, fallback = '-') {
 
   const raw = String(value).trim()
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
-    return raw
+    return `${raw.slice(0, 6)}${raw.slice(-2)}`
   }
 
   const dateValue = asDate(value)
@@ -45,7 +45,7 @@ export function formatDateBR(value, fallback = '-') {
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
     month: '2-digit',
-    year: 'numeric',
+    year: '2-digit',
   }).format(dateValue)
 }
 
@@ -55,10 +55,7 @@ export function formatDateTimeBR(value, fallback = '-') {
     return fallback
   }
 
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(dateValue)
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(dateValue)
 }
 
 export function formatDateAndTimeBR(dateValue, timeValue = '', fallback = '-') {
