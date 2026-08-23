@@ -3415,6 +3415,57 @@ export async function listarCaixasPassagemPendentes({ empresaId = '', empresaNom
     })
 }
 
+export async function encerrarCaixaPassagemComoSuperadmin(viagemId, actor = {}) {
+  if (!viagemId) {
+    throw new Error('Caixa sem identificacao para encerramento.')
+  }
+
+  const fechadoEm = new Date().toISOString()
+
+  if (isConfigured && db) {
+    const viagemRef = doc(db, 'viagens', viagemId)
+    const snapshot = await getDoc(viagemRef)
+    if (!snapshot.exists()) {
+      throw new Error('O registro deste caixa nao foi encontrado.')
+    }
+
+    await updateDoc(viagemRef, {
+      status: 'Fechada',
+      caixaFechadoEm: serverTimestamp(),
+      caixaFechadoPorNome: actor.operadorNome || actor.operadorEmail || 'Superadmin',
+      fechamentoForcadoSuperadmin: true,
+      atualizadoEm: serverTimestamp(),
+    })
+
+    return {
+      id: viagemId,
+      ...snapshot.data(),
+      status: 'Fechada',
+      caixaFechadoEm: fechadoEm,
+      caixaFechadoPorNome: actor.operadorNome || actor.operadorEmail || 'Superadmin',
+      fechamentoForcadoSuperadmin: true,
+    }
+  }
+
+  const store = readStore()
+  const viagem = (store.viagens || []).find((item) => item.id === viagemId)
+  if (!viagem) {
+    throw new Error('O registro deste caixa nao foi encontrado no modo local.')
+  }
+
+  const atualizada = {
+    ...viagem,
+    status: 'Fechada',
+    caixaFechadoEm: fechadoEm,
+    caixaFechadoPorNome: actor.operadorNome || actor.operadorEmail || 'Superadmin',
+    fechamentoForcadoSuperadmin: true,
+    atualizadoEm: fechadoEm,
+  }
+  store.viagens = (store.viagens || []).map((item) => item.id === viagemId ? atualizada : item)
+  writeStore(store)
+  return atualizada
+}
+
 function compararDataDesc(left, right) {
   const leftDate = getDateFromUnknownValue(left)
   const rightDate = getDateFromUnknownValue(right)

@@ -4,7 +4,7 @@ import { ListIcon, MoneyIcon } from '../components/AppIcons.jsx'
 import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
-import { deleteCollectionDocument, deleteHistoricoCaixaPassagem, encerrarVendaPassagemHorario, getCollectionCount, listCaixaEntries, listCollectionOnce, listCollectionPage, listarCaixasPassagemPendentes, listarHistoricoCaixasPassagem, listarPassagensPorViagem, obterResumoVendaPassagemHorario } from '../services/firebase.js'
+import { deleteCollectionDocument, deleteHistoricoCaixaPassagem, encerrarCaixaPassagemComoSuperadmin, getCollectionCount, listCaixaEntries, listCollectionOnce, listCollectionPage, listarCaixasPassagemPendentes, listarHistoricoCaixasPassagem, listarPassagensPorViagem, obterResumoVendaPassagemHorario } from '../services/firebase.js'
 import { hasFreteAccess, hasPassagemAccess, isGestor } from '../utils/accessControl.js'
 import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 import { filterCaixaItemsByModuleAccess, getCaixaCategoria, getCaixaResumoFromItems, resumirCaixaPorCategoria } from '../utils/caixaAccess.js'
@@ -140,6 +140,7 @@ export default function Caixa() {
   const [caixasPendentes, setCaixasPendentes] = useState([])
   const [loadingPendentes, setLoadingPendentes] = useState(Boolean(user?.rootSuperadmin))
   const [fechandoPendenteId, setFechandoPendenteId] = useState('')
+  const [mensagemPendentes, setMensagemPendentes] = useState('')
   const caixa = filtrarCaixaPorOrigem(caixaBase, filtroOrigem)
   const resumoCategorias = resumirCaixaPorCategoria(caixa)
   const resumoCaixaFiltrado = getCaixaResumoFromItems(caixa)
@@ -163,22 +164,19 @@ export default function Caixa() {
   }, [user?.rootSuperadmin])
 
   async function encerrarCaixaPendente(item) {
-    const confirmed = window.confirm(`Encerrar o caixa de ${item.empresaNome || 'empresa nao informada'} - ${item.origem || '-'} / ${item.destino || '-'}?`)
-    if (!confirmed) return
-
     setFechandoPendenteId(item.id)
     setErroTela('')
+    setMensagemPendentes('')
     try {
-      await encerrarVendaPassagemHorario(item.id, {
-        rootSuperadmin: true,
-        empresaId: '',
-        empresaNome: '',
+      await encerrarCaixaPassagemComoSuperadmin(item.id, {
         operadorNome: user?.nome || user?.displayName || user?.email || 'Superadmin',
+        operadorEmail: user?.email || '',
       })
       setCaixasPendentes((current) => current.filter((caixaItem) => caixaItem.id !== item.id))
+      setMensagemPendentes(`Caixa de ${item.empresaNome || item.embarcacaoNome || 'registro antigo'} encerrado com sucesso.`)
     } catch (error) {
       reportRuntimeError('Caixa.encerrarCaixaPendente', error, { viagemId: item.id })
-      setErroTela(error.message || 'Nao foi possivel encerrar o caixa pendente.')
+      setMensagemPendentes(`Erro: ${error.message || 'Nao foi possivel encerrar o caixa pendente.'}`)
     } finally {
       setFechandoPendenteId('')
     }
@@ -623,6 +621,7 @@ export default function Caixa() {
         {user?.rootSuperadmin ? (
           <PageShell title="Caixas pendentes" subtitle="Visao global para encerrar caixas abertos de qualquer empresa, inclusive registros antigos." icon={<MoneyIcon className="h-6 w-6" />}>
             <div className="space-y-3">
+              {mensagemPendentes ? <div className={`rounded-[1.3rem] border px-4 py-3 text-sm font-bold ${mensagemPendentes.startsWith('Erro:') ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{mensagemPendentes}</div> : null}
               {caixasPendentes.map((item) => (
                 <div key={item.id} className="flex flex-col gap-3 rounded-[1.4rem] border border-amber-200 bg-amber-50 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
