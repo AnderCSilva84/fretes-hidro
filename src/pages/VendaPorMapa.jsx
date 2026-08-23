@@ -9,24 +9,6 @@ import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
 import { gerarViagemOperacionalId } from '../services/firebase.js'
 
-function dataCurtaHoje() {
-  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }).format(new Date())
-}
-
-function mascararDataCurta(value) {
-  const numeros = String(value || '').replace(/\D/g, '').slice(0, 6)
-  if (numeros.length <= 2) return numeros
-  if (numeros.length <= 4) return `${numeros.slice(0, 2)}/${numeros.slice(2)}`
-  return `${numeros.slice(0, 2)}/${numeros.slice(2, 4)}/${numeros.slice(4)}`
-}
-
-function dataCurtaParaIso(value) {
-  const match = String(value || '').match(/^(\d{2})\/(\d{2})\/(\d{2})$/)
-  if (!match) return ''
-  const [, dia, mes, ano] = match
-  return `20${ano}-${mes}-${dia}`
-}
-
 function parseCapacidade(embarcacao) {
   const bruto = String(embarcacao?.capacidadePassageiros || embarcacao?.capacidade || '').match(/\d+/)
   return bruto ? Number(bruto[0]) : 0
@@ -45,7 +27,6 @@ export default function VendaPorMapa() {
     embarcacaoId: '',
     horarioSaida: '',
   })
-  const [dataExibida, setDataExibida] = useState(dataCurtaHoje)
 
   const rota = useMemo(() => rotas.find((item) => item.id === form.rotaId) || null, [form.rotaId, rotas])
   const embarcacoesDisponiveis = useMemo(() => {
@@ -90,7 +71,7 @@ export default function VendaPorMapa() {
       <div className="mx-auto max-w-3xl">
         <PageShell title="Selecionar saída" subtitle="O mapa de assentos será a única tela de venda." showEyebrow={false}>
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={abrirMapa}>
-            <Input label="Data da viagem (DD/MM/AA)" inputMode="numeric" maxLength="8" value={dataExibida} onChange={(event) => { const valor = mascararDataCurta(event.target.value); setDataExibida(valor); setForm((current) => ({ ...current, dataViagem: dataCurtaParaIso(valor) })) }} placeholder="DD/MM/AA" required />
+            <Input label="Data da viagem (DD/MM/AA)" type="date" value={form.dataViagem} onChange={(event) => setForm((current) => ({ ...current, dataViagem: event.target.value }))} required />
             <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
               <span>Linha</span>
               <select value={form.rotaId} onChange={(event) => setForm((current) => ({ ...current, rotaId: event.target.value, embarcacaoId: '', horarioSaida: '' }))} className="min-h-12 rounded-[1.1rem] border border-blue-200 bg-white px-3 text-slate-900 shadow-sm outline-none focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100" required>
