@@ -3403,6 +3403,12 @@ export async function listarCaixasPassagemPendentes({ empresaId = '', empresaNom
   const viagens = await listCollectionOnce('viagens', { empresaId, empresaNome })
 
   return viagens
+    .map((item, index) => ({
+      ...item,
+      id: item.id || `legacy-local-${index}`,
+      registroLocalSemId: !item.id,
+      indiceRegistroLocal: !item.id ? index : null,
+    }))
     .filter((item) => {
       if (item?.caixaFechadoEm) return false
       const status = String(item?.status || '').trim().toLowerCase()
@@ -3478,9 +3484,15 @@ export async function excluirCaixaPendenteComoSuperadmin(viagemId) {
   }
 
   const store = readStore()
-  const existe = (store.viagens || []).some((item) => item.id === viagemId)
+  const legacyMatch = String(viagemId).match(/^legacy-local-(\d+)$/)
+  const legacyIndex = legacyMatch ? Number(legacyMatch[1]) : -1
+  const existe = legacyIndex >= 0
+    ? Boolean((store.viagens || [])[legacyIndex])
+    : (store.viagens || []).some((item) => item.id === viagemId)
   if (!existe) throw new Error('O registro deste caixa nao foi encontrado no modo local.')
-  store.viagens = (store.viagens || []).filter((item) => item.id !== viagemId)
+  store.viagens = legacyIndex >= 0
+    ? (store.viagens || []).filter((_item, index) => index !== legacyIndex)
+    : (store.viagens || []).filter((item) => item.id !== viagemId)
   writeStore(store)
   return { id: viagemId }
 }
