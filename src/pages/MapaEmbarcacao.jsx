@@ -239,30 +239,38 @@ export default function MapaEmbarcacao() {
 
   return (
     <Layout title="Mapa da embarcação" subtitle="Ocupação por assento e modalidade de passagem." icon={<BoatIcon className="h-6 w-6" />} containerClassName="max-w-[92rem]">
-      <div className="mx-auto max-w-5xl space-y-5">
-        <section className="overflow-hidden rounded-[1.8rem] border border-blue-100 bg-white shadow-[0_18px_50px_rgba(15,45,90,0.08)]">
-          <div className="bg-[linear-gradient(135deg,#06275d,#0a4da8)] px-5 py-5 text-white sm:px-7">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-200">Embarcação</p>
-                <h2 className="mt-1 text-2xl font-bold">{viagem?.embarcacaoNome || (loading ? 'Carregando...' : 'Não informada')}</h2>
-              </div>
-              <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm backdrop-blur">
-                <strong>{viagem?.origem || 'Origem'}</strong> <span className="px-2 text-blue-200">→</span> <strong>{viagem?.destino || 'Destino'}</strong>
-                <p className="mt-1 text-blue-100">{formatDateAndTimeBR(viagem?.dataViagem, viagem?.horarioSaida)}</p>
-              </div>
+      <div className="mx-auto max-w-4xl space-y-3">
+        <section className="overflow-hidden rounded-[1.65rem] border border-slate-200 bg-[#fbfdff] shadow-[0_14px_38px_rgba(15,45,90,0.10)]">
+          <div className="m-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:m-4 sm:px-5">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <TripPoint label="Origem" value={viagem?.origem || 'Origem'} color="#059669" />
+              <span className="text-2xl font-light text-[#123b78]">→</span>
+              <TripPoint label="Destino" value={viagem?.destino || 'Destino'} color="#1769e8" />
+            </div>
+            <div className="my-3 h-px bg-slate-200" />
+            <div className="grid grid-cols-3 gap-2 text-[#0a2d61]">
+              <InfoLine icon="⛴" label={viagem?.embarcacaoNome || (loading ? 'Carregando...' : 'Não informada')} />
+              <InfoLine icon="▣" label={formatDateAndTimeBR(viagem?.dataViagem, '').trim()} />
+              <InfoLine icon="◷" label={viagem?.horarioSaida || '-'} />
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
+              <MiniInfo label="Viagem" value={viagem?.codigoViagem || viagem?.id?.slice(-8)?.toUpperCase() || '-'} />
+              <MiniInfo label="Capacidade" value={`${capacidade || 0} lugares`} />
+              <MiniInfo label="Passageiros" value={passageirosContabilizados.length} />
             </div>
           </div>
 
           {error ? <div className="m-5 rounded-2xl bg-rose-50 p-4 text-sm font-medium text-rose-700">{error}</div> : null}
           {sucesso ? <div className="m-5 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{sucesso}</div> : null}
 
-          {!error && !loading ? <div className="p-4 sm:p-7">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Summary label="Capacidade" value={capacidade} color="#0a2d61" />
-              <Summary label="Passageiros" value={passageirosContabilizados.length} color="#1769e8" />
-              <Summary label="Livres" value={totais.livre || 0} color={LIVRE.color} />
-              <Summary label="Ocupação" value={`${capacidade ? Math.round((passageirosContabilizados.length / capacidade) * 100) : 0}%`} color="#8b5cf6" />
+          {!error && !loading ? <div className="px-3 pb-4 sm:px-4 sm:pb-5">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              <Metric label="Livres" value={totais.livre || 0} color={LIVRE.color} symbol="♿" />
+              <Metric label="Pagantes" value={totais.inteira || 0} color={MODALIDADES.inteira.color} symbol="♟" />
+              <Metric label="Gratuidades" value={totais.gratuidade || 0} color={MODALIDADES.gratuidade.color} symbol="♿" />
+              <Metric label="Estudantes" value={totais.estudante || 0} color={MODALIDADES.estudante.color} symbol="◆" />
+              <Metric label="Colo" value={totais['crianca de colo'] || 0} color={MODALIDADES['crianca de colo'].color} symbol="♥" />
+              <Metric label="Antecipadas" value={totais.antecipada || 0} color={MODALIDADES.antecipada.color} symbol="◷" />
             </div>
 
             <div className={`mt-4 flex flex-col gap-3 rounded-2xl border px-4 py-4 sm:flex-row sm:items-center sm:justify-between ${caixaAberto ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
@@ -270,35 +278,38 @@ export default function MapaEmbarcacao() {
               {caixaAberto ? <button type="button" onClick={fecharCaixa} disabled={operandoCaixa} className="min-h-11 rounded-xl border border-rose-200 bg-white px-4 text-sm font-bold text-rose-700 disabled:opacity-60">{operandoCaixa ? 'Encerrando...' : 'Encerrar caixa'}</button> : <button type="button" onClick={abrirCaixa} disabled={operandoCaixa} className="min-h-11 rounded-xl bg-emerald-600 px-5 text-sm font-black text-white disabled:opacity-60">{operandoCaixa ? 'Abrindo...' : 'Abrir caixa e vender'}</button>}
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-slate-600">
+            <div className="mt-3 flex flex-wrap justify-center gap-x-3 gap-y-2 text-[11px] font-semibold text-slate-600">
               {[['livre', LIVRE], ...modalidadesVisiveis.map(([key, config]) => [key, config])].map(([key, config]) => (
                 <span key={key} className="inline-flex items-center gap-2"><i className="h-3 w-3 rounded" style={{ background: config.color }} />{config.shortLabel} ({totais[key] || 0})</span>
               ))}
             </div>
 
-            <div className="relative mx-auto mt-7 max-w-3xl rounded-[42%_42%_18%_18%/7%_7%_5%_5%] border-2 border-blue-200 bg-[linear-gradient(180deg,#f3f8ff_0%,#ffffff_14%,#ffffff_88%,#eef6ff_100%)] px-4 pb-10 pt-12 sm:px-10">
-              <div className="absolute left-1/2 top-3 -translate-x-1/2 text-sm font-black uppercase tracking-[0.18em] text-[#0a2d61]">Proa</div>
-              <div className="pointer-events-none absolute bottom-4 left-1/2 top-14 w-px -translate-x-1/2 bg-blue-100" />
-              <div className="grid grid-cols-4 gap-x-4 gap-y-3 sm:gap-x-12">
+            <div className="relative mx-auto mt-3 max-w-2xl overflow-hidden rounded-[48%_48%_24%_24%/11%_11%_5%_5%] border-[3px] border-slate-300 bg-[linear-gradient(90deg,#eef3f9_0%,#ffffff_12%,#f8fbff_50%,#ffffff_88%,#e8eef7_100%)] px-5 pb-12 pt-20 shadow-[inset_0_0_0_6px_#f5f8fc,0_12px_30px_rgba(10,45,97,0.12)] sm:px-10">
+              <svg className="pointer-events-none absolute inset-x-0 top-0 h-20 w-full" viewBox="0 0 600 90" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M8 88 L300 5 L592 88" fill="#eef3f9" stroke="#b9c7da" strokeWidth="4" />
+                <path d="M55 83 L300 19 L545 83" fill="none" stroke="#0a2d61" strokeWidth="5" opacity=".75" />
+              </svg>
+              <div className="absolute left-1/2 top-11 -translate-x-1/2 text-center text-xs font-black uppercase tracking-[0.18em] text-[#0a2d61]"><BoatIcon className="mx-auto mb-1 h-4 w-4" />Proa</div>
+              <div className="pointer-events-none absolute bottom-12 left-1/2 top-24 w-10 -translate-x-1/2 border-x border-blue-100 bg-white/55" />
+              <span className="pointer-events-none absolute left-1/2 top-1/2 z-[1] -translate-x-1/2 -translate-y-1/2 text-[10px] font-black uppercase tracking-[0.35em] text-blue-700 [writing-mode:vertical-rl]">Corredor</span>
+              <div className="grid grid-cols-4 gap-x-4 gap-y-2.5 sm:gap-x-14">
                 {assentos.map((assento) => {
                   const config = assento.modalidade === 'livre' ? LIVRE : MODALIDADES[assento.modalidade]
                   return (
-                    <button key={assento.numero} type="button" disabled={(assento.modalidade === 'livre' && !caixaAberto) || reimprimindoId === assento.passagem?.id} onClick={() => { if (assento.passagem) void reimprimirPassagem(assento.passagem); else { setAssentoVenda(assento.numero); setError('') } }} aria-label={`Assento ${assento.numero}: ${config.shortLabel}. ${assento.passagem ? 'Toque para reimprimir a segunda via.' : 'Toque para vender.'}`} title={assento.passagem ? 'Toque para reimprimir a segunda via' : (caixaAberto ? 'Toque para vender' : 'Abra o caixa para vender')} className={`relative z-[1] flex min-h-11 items-center justify-center gap-2 rounded-xl border-2 px-2 text-sm font-extrabold transition ${(assento.passagem || caixaAberto) ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus:ring-4 focus:ring-blue-200' : 'cursor-not-allowed text-white disabled:opacity-65'}`} style={{ borderColor: config.color, background: assento.modalidade === 'livre' ? config.light : config.color, color: assento.modalidade === 'livre' ? config.color : 'white' }}>
+                    <button key={assento.numero} type="button" disabled={(assento.modalidade === 'livre' && !caixaAberto) || reimprimindoId === assento.passagem?.id} onClick={() => { if (assento.passagem) void reimprimirPassagem(assento.passagem); else { setAssentoVenda(assento.numero); setError('') } }} aria-label={`Assento ${assento.numero}: ${config.shortLabel}. ${assento.passagem ? 'Toque para reimprimir a segunda via.' : 'Toque para vender.'}`} title={assento.passagem ? 'Toque para reimprimir a segunda via' : (caixaAberto ? 'Toque para vender' : 'Abra o caixa para vender')} className={`relative z-[2] flex min-h-10 items-center justify-center gap-2 rounded-lg border px-1.5 text-sm font-extrabold shadow-sm transition ${(assento.passagem || caixaAberto) ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus:ring-4 focus:ring-blue-200' : 'cursor-not-allowed text-white disabled:opacity-65'} ${assento.numero % 4 === 2 ? 'mr-3 sm:mr-6' : ''} ${assento.numero % 4 === 3 ? 'ml-3 sm:ml-6' : ''}`} style={{ borderColor: config.color, background: assento.modalidade === 'livre' ? '#ffffff' : config.color, color: assento.modalidade === 'livre' ? config.color : 'white' }}>
                       <span>{String(assento.numero).padStart(2, '0')}</span><span>{assento.modalidade === 'livre' ? <SeatIcon /> : config.symbol}</span>
                     </button>
                   )
                 })}
               </div>
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-sm font-black uppercase tracking-[0.18em] text-[#0a2d61]">Popa</div>
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-center text-xs font-black uppercase tracking-[0.18em] text-[#0a2d61]"><BoatIcon className="mx-auto h-4 w-4" />Popa</div>
             </div>
 
-            <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-bold text-emerald-800">{caixaAberto ? 'Assento verde vende. Assento ocupado reimprime a segunda via.' : 'Assentos ocupados continuam disponiveis para reimpressao.'}</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-              <Link to="/nova-passagem" className="flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-[#062f70] px-5 py-3 font-bold text-white shadow-[0_12px_25px_rgba(6,47,112,0.2)]">
-                <PeopleIcon className="h-5 w-5" />Voltar para venda de passagem
-              </Link>
-              <Link to={`/manifesto/${viagemId}`} className="flex min-h-14 items-center justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 font-bold text-[#0a2d61]">Ver passageiros do caixa ({passageirosContabilizados.length})</Link>
+            <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex min-h-12 items-center justify-center gap-2 bg-[#062f70] px-3 font-bold text-white"><BoatIcon className="h-5 w-5" />Mapa</div>
+              <Link to={`/manifesto/${viagemId}`} className="flex min-h-12 items-center justify-center gap-2 px-3 font-bold text-[#0a2d61]"><PeopleIcon className="h-5 w-5" />Passageiros ({passageirosContabilizados.length})</Link>
             </div>
+            <p className="mt-2 text-center text-xs font-semibold text-slate-500">{caixaAberto ? 'Toque em um assento livre para vender; ocupado para reimprimir.' : 'Assentos ocupados permanecem disponíveis para reimpressão.'}</p>
           </div> : null}
         </section>
       </div>
@@ -339,6 +350,18 @@ export default function MapaEmbarcacao() {
   )
 }
 
-function Summary({ label, value, color }) {
-  return <div className="rounded-2xl border border-blue-100 bg-slate-50 px-4 py-3"><p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-500">{label}</p><p className="mt-1 text-2xl font-black" style={{ color }}>{value}</p></div>
+function TripPoint({ label, value, color }) {
+  return <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">{label}</p><p className="mt-1 truncate text-sm font-black sm:text-base" style={{ color }}>{value}</p></div>
+}
+
+function InfoLine({ icon, label }) {
+  return <div className="flex min-w-0 items-center justify-center gap-1.5 text-center"><span className="text-base" aria-hidden="true">{icon}</span><strong className="truncate text-[11px] sm:text-sm">{label}</strong></div>
+}
+
+function MiniInfo({ label, value }) {
+  return <div className="min-w-0 text-center"><p className="text-[9px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</p><p className="mt-0.5 truncate text-xs font-black uppercase text-[#0a2d61]">{value}</p></div>
+}
+
+function Metric({ label, value, color, symbol }) {
+  return <div className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-center shadow-sm"><p className="text-lg font-black leading-none" style={{ color }}><span className="mr-1 text-sm">{symbol}</span>{value}</p><p className="mt-1 truncate text-[9px] font-black uppercase text-[#0a2d61]">{label}</p></div>
 }
