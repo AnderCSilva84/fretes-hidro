@@ -11,7 +11,7 @@ function getBottomNavItems(user) {
     return [
       { to: '/dashboard', label: 'Inicio', icon: HomeIcon },
       { to: '/nova-comanda', label: 'Novo Frete', icon: PlusIcon, primary: true },
-      { to: '/nova-passagem', label: 'Nova Passagem', icon: PlusIcon },
+      { to: '/nova-passagem', label: 'Venda no Mapa', icon: PlusIcon },
       { to: '/caixa', label: 'Caixa', icon: MoneyIcon },
     ]
   }
@@ -20,7 +20,7 @@ function getBottomNavItems(user) {
     return [
       { to: '/dashboard', label: 'Inicio', icon: HomeIcon },
       { to: '/nova-comanda', label: 'Novo Frete', icon: PlusIcon, primary: true },
-      { to: '/nova-passagem', label: 'Nova Passagem', icon: PlusIcon },
+      { to: '/nova-passagem', label: 'Venda no Mapa', icon: PlusIcon },
       { to: '/caixa', label: 'Caixa', icon: MoneyIcon },
     ]
   }
@@ -28,7 +28,7 @@ function getBottomNavItems(user) {
   return [
     { to: '/dashboard', label: 'Inicio', icon: HomeIcon },
     { to: '/nova-comanda', label: 'Novo Frete', icon: PlusIcon, primary: true },
-    { to: '/nova-passagem', label: 'Nova Passagem', icon: PlusIcon },
+    { to: '/nova-passagem', label: 'Venda no Mapa', icon: PlusIcon },
     { to: '/caixa', label: 'Caixa', icon: MoneyIcon },
   ]
 }

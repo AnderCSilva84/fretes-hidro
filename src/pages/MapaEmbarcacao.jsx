@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { BoatIcon, PeopleIcon } from '../components/AppIcons.jsx'
 import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
-import { getViagemById, listarPassagensPorViagem, venderPassagem } from '../services/firebase.js'
+import { abrirVendaPassagemHorario, encerrarVendaPassagemHorario, getViagemById, listarPassagensPorViagem, venderPassagem } from '../services/firebase.js'
 import { formatDateAndTimeBR } from '../utils/date.js'
 import { calcularValorTarifa, isTarifaAntecipada } from '../utils/tarifaUtils.js'
 
@@ -67,6 +67,7 @@ export default function MapaEmbarcacao() {
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro')
   const [dadosPassageiro, setDadosPassageiro] = useState({ nome: '', documento: '' })
   const [vendendo, setVendendo] = useState(false)
+  const [operandoCaixa, setOperandoCaixa] = useState(false)
   const [sucesso, setSucesso] = useState('')
 
   useEffect(() => {
@@ -110,10 +111,48 @@ export default function MapaEmbarcacao() {
   }, {}), [assentos])
   const modalidadesVisiveis = Object.entries(MODALIDADES).filter(([key]) => totais[key])
   const pedeIdentificacao = ['Gratuidade', 'Estudante', 'Idoso'].includes(tarifaTipo)
+  const caixaAberto = Boolean(viagem?.caixaAbertoEm && !viagem?.caixaFechadoEm && ['Aberta', 'Embarcando'].includes(viagem?.status))
+
+  async function abrirCaixa() {
+    if (!viagem) return
+    setOperandoCaixa(true)
+    setError('')
+    try {
+      const atualizada = await abrirVendaPassagemHorario({
+        ...viagem,
+        empresaId,
+        empresaNome,
+        valorPadrao: viagem.valorPadrao || 0,
+        operadorNome: user?.nome || user?.displayName || user?.email || 'Operador',
+        operadorEmail: user?.email || '',
+      })
+      setViagem(atualizada)
+      setSucesso('Caixa aberto. Toque em um assento verde para vender.')
+    } catch (runtimeError) {
+      setError(runtimeError.message || 'Não foi possível abrir o caixa desta saída.')
+    } finally {
+      setOperandoCaixa(false)
+    }
+  }
+
+  async function fecharCaixa() {
+    if (!viagem?.id) return
+    setOperandoCaixa(true)
+    setError('')
+    try {
+      await encerrarVendaPassagemHorario(viagem.id, { empresaId, empresaNome, operadorNome: user?.nome || user?.email || 'Operador' })
+      setViagem((current) => ({ ...current, status: 'Encerrada', caixaFechadoEm: new Date().toISOString() }))
+      setSucesso('Caixa encerrado com sucesso.')
+    } catch (runtimeError) {
+      setError(runtimeError.message || 'Não foi possível encerrar o caixa.')
+    } finally {
+      setOperandoCaixa(false)
+    }
+  }
 
   async function confirmarVendaRapida() {
     if (!assentoVenda || !viagem) return
-    if (!viagem.caixaAbertoEm || viagem.caixaFechadoEm || !['Aberta', 'Embarcando'].includes(viagem.status)) {
+    if (!caixaAberto) {
       setError('Abra o caixa deste horário antes de vender pelo mapa.')
       return
     }
@@ -193,6 +232,11 @@ export default function MapaEmbarcacao() {
               <Summary label="Ocupação" value={`${capacidade ? Math.round((passagens.length / capacidade) * 100) : 0}%`} color="#8b5cf6" />
             </div>
 
+            <div className={`mt-4 flex flex-col gap-3 rounded-2xl border px-4 py-4 sm:flex-row sm:items-center sm:justify-between ${caixaAberto ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+              <div><p className={`text-sm font-black ${caixaAberto ? 'text-emerald-800' : 'text-amber-800'}`}>{caixaAberto ? 'Caixa aberto para venda' : 'Caixa fechado'}</p><p className="mt-1 text-xs text-slate-600">{caixaAberto ? 'Toque em uma vaga verde para vender.' : 'Abra o caixa para liberar a venda pelos assentos.'}</p></div>
+              {caixaAberto ? <button type="button" onClick={fecharCaixa} disabled={operandoCaixa} className="min-h-11 rounded-xl border border-rose-200 bg-white px-4 text-sm font-bold text-rose-700 disabled:opacity-60">{operandoCaixa ? 'Encerrando...' : 'Encerrar caixa'}</button> : <button type="button" onClick={abrirCaixa} disabled={operandoCaixa} className="min-h-11 rounded-xl bg-emerald-600 px-5 text-sm font-black text-white disabled:opacity-60">{operandoCaixa ? 'Abrindo...' : 'Abrir caixa e vender'}</button>}
+            </div>
+
             <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-slate-600">
               {[['livre', LIVRE], ...modalidadesVisiveis.map(([key, config]) => [key, config])].map(([key, config]) => (
                 <span key={key} className="inline-flex items-center gap-2"><i className="h-3 w-3 rounded" style={{ background: config.color }} />{config.shortLabel} ({totais[key] || 0})</span>
@@ -206,7 +250,7 @@ export default function MapaEmbarcacao() {
                 {assentos.map((assento) => {
                   const config = assento.modalidade === 'livre' ? LIVRE : MODALIDADES[assento.modalidade]
                   return (
-                    <button key={assento.numero} type="button" disabled={assento.modalidade !== 'livre'} onClick={() => { setAssentoVenda(assento.numero); setError('') }} aria-label={`Assento ${assento.numero}: ${config.shortLabel}. Toque para vender.`} title={assento.passagem?.passageiroNome || (assento.modalidade === 'livre' ? 'Toque para vender' : config.shortLabel)} className={`relative z-[1] flex min-h-11 items-center justify-center gap-2 rounded-xl border-2 px-2 text-sm font-extrabold transition ${assento.modalidade === 'livre' ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus:ring-4 focus:ring-emerald-200' : 'cursor-not-allowed text-white'}`} style={{ borderColor: config.color, background: assento.modalidade === 'livre' ? config.light : config.color, color: assento.modalidade === 'livre' ? config.color : 'white' }}>
+                    <button key={assento.numero} type="button" disabled={assento.modalidade !== 'livre' || !caixaAberto} onClick={() => { setAssentoVenda(assento.numero); setError('') }} aria-label={`Assento ${assento.numero}: ${config.shortLabel}. Toque para vender.`} title={assento.passagem?.passageiroNome || (assento.modalidade === 'livre' ? (caixaAberto ? 'Toque para vender' : 'Abra o caixa para vender') : config.shortLabel)} className={`relative z-[1] flex min-h-11 items-center justify-center gap-2 rounded-xl border-2 px-2 text-sm font-extrabold transition ${assento.modalidade === 'livre' && caixaAberto ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus:ring-4 focus:ring-emerald-200' : 'cursor-not-allowed text-white disabled:opacity-65'}`} style={{ borderColor: config.color, background: assento.modalidade === 'livre' ? config.light : config.color, color: assento.modalidade === 'livre' ? config.color : 'white' }}>
                       <span>{String(assento.numero).padStart(2, '0')}</span><span>{assento.modalidade === 'livre' ? <SeatIcon /> : config.symbol}</span>
                     </button>
                   )
@@ -215,7 +259,7 @@ export default function MapaEmbarcacao() {
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-sm font-black uppercase tracking-[0.18em] text-[#0a2d61]">Popa</div>
             </div>
 
-            <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-bold text-emerald-800">Toque em qualquer assento verde para iniciar a venda nessa vaga.</p>
+            <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-bold text-emerald-800">{caixaAberto ? 'Toque em qualquer assento verde para iniciar a venda nessa vaga.' : 'Abra o caixa para liberar os assentos.'}</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
               <Link to="/nova-passagem" className="flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-[#062f70] px-5 py-3 font-bold text-white shadow-[0_12px_25px_rgba(6,47,112,0.2)]">
                 <PeopleIcon className="h-5 w-5" />Voltar para venda de passagem

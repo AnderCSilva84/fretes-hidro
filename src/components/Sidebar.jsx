@@ -76,7 +76,7 @@ export default function Sidebar({ open = false, onClose }) {
 
   const passagemItems = canAccessPassagens
     ? [
-        { to: '/nova-passagem', label: 'Nova Passagem', icon: PlusIcon },
+        { to: '/nova-passagem', label: 'Venda por Mapa', icon: PlusIcon },
         { to: '/passagens', label: 'Passagens', icon: PackageIcon },
         { to: '/scanner-embarque', label: 'Scanner Embarque', icon: SearchIcon },
       ]
