@@ -1,0 +1,12 @@
+{
+  "appId": "com.acsinformatica.navia",
+  "appName": "NAVIA",
+  "webDir": "dist",
+  "server": {
+    "url": "https://naviaplataform.netlify.app",
+    "androidScheme": "https",
+    "allowNavigation": [
+      "naviaplataform.netlify.app"
+    ]
+  }
+}

@@ -1,5 +1,8 @@
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { formatDateBR, formatDateAndTimeBR } from './date.js'
 import { formatarBilheteTextoTermico } from './passagemUtils.js'
+
+const NaviaPrinter = registerPlugin('NaviaPrinter')
 
 const THERMAL_PRINT_MESSAGE_TYPE = 'navia-thermal-print'
 const THERMAL_PRINT_AGENT_URL_STORAGE_KEY = 'navia-thermal-print-agent-url'
@@ -133,6 +136,20 @@ function tryRawBtPrint(passagens) {
   document.body.appendChild(link)
   link.click()
   link.remove()
+  return true
+}
+
+async function tryNativeQ2iPrint(passagens) {
+  if (!Capacitor.isNativePlatform()) return false
+
+  for (const passagem of passagens) {
+    await NaviaPrinter.print({
+      text: formatarBilheteTextoTermico(passagem),
+      qrCode: String(passagem?.bilheteUrl || passagem?.codigo || ''),
+      feedLines: 120,
+    })
+  }
+
   return true
 }
 
@@ -611,6 +628,10 @@ export async function imprimirPassagensTermicas(passagens) {
   const itens = (Array.isArray(passagens) ? passagens : [passagens]).filter(Boolean)
 
   if (itens.length === 0) {
+    return null
+  }
+
+  if (await tryNativeQ2iPrint(itens)) {
     return null
   }
 
