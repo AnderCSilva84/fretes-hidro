@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { formatDateBR, formatDateAndTimeBR } from './date.js'
 import { formatarBilheteTextoTermico } from './passagemUtils.js'
+import { isTarifaAntecipada } from './tarifaUtils.js'
 
 const NaviaPrinter = registerPlugin('NaviaPrinter')
 
@@ -709,7 +710,7 @@ export async function imprimirResumoCaixaTermico({ viagem, passagens = [], resum
   const modalidades = agruparContagens(validas, 'tarifaTipo')
   const pagamentos = agruparContagens(validas, 'formaPagamento')
   const operadorCaixa = viagem?.caixaAbertoPorNome || viagem?.operadorNome || viagem?.operadorEmail || 'Nao informado'
-  const total = Number(resumo?.totalArrecadado ?? validas.reduce((valor, item) => valor + Number(item?.valor || 0), 0))
+  const total = Number(resumo?.totalArrecadado ?? validas.filter((item) => !isTarifaAntecipada(item.tarifaTipo)).reduce((valor, item) => valor + Number(item?.valor || 0), 0))
   const texto = [
     'NAVIA',
     'RESUMO DE FECHAMENTO DE CAIXA',

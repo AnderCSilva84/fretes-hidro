@@ -39,7 +39,7 @@ import { obterRemetenteNome } from '../utils/remetente.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
 import { enrichUserModuleAccess, isGestor, normalizeModuleAccess } from '../utils/accessControl.js'
 import { DEFAULT_EMPRESA, ROOT_SUPERADMIN_EMAIL, SYSTEM_NAME, isRootSuperadminEmail, normalizeEmail } from '../utils/systemConfig.js'
-import { isTarifaAntecipada } from '../utils/tarifaUtils.js'
+import { isCriancaDeColo, isTarifaAntecipada } from '../utils/tarifaUtils.js'
 import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 import { getIndexedFieldName, normalizeSearchValue, prepareCollectionPayload } from './searchNormalization.js'
 import { calcularHorarioChegada, gerarCodigoPassagem, normalizarDocumento } from '../utils/passagemUtils.js'
@@ -687,7 +687,8 @@ function computePassagensAnalytics(passagens = [], viagens = []) {
   const passagensPendentes = passagensValidas.filter((item) => item.status !== 'Embarcado')
   const passagensImpactandoCapacidade = passagensValidas.filter((item) => passagemImpactaCapacidade(item))
   const gratuidades = passagensValidas.filter((item) => normalizeTarifaTipo(item.tarifaTipo) === 'gratuidade')
-  const passagensTransportadasBase = passagensEmbarcadas.length ? passagensEmbarcadas : passagensValidas
+  const passagensTransportadasBase = (passagensEmbarcadas.length ? passagensEmbarcadas : passagensValidas)
+    .filter((item) => passagemImpactaCapacidade(item))
   const horaPicoCounter = new Map(PASSAGENS_HOUR_RANGE.map((hour) => [`${String(hour).padStart(2, '0')}h`, 0]))
   const embarcacaoCounter = new Map()
   const weekdayCounter = new Map(PASSAGENS_WEEKDAY_ORDER.map((label) => [label, 0]))
@@ -739,7 +740,7 @@ function computePassagensAnalytics(passagens = [], viagens = []) {
   )
 
   return {
-    totalPassagens: passagens.length,
+    totalPassagens: passagensImpactandoCapacidade.length,
     totalViagensAtivas: (viagens || []).filter((item) => ['Aberta', 'Embarcando'].includes(item.status)).length,
     totalEmbarcadas: passagensEmbarcadas.length,
     totalPendentes: passagensPendentes.length,
@@ -3099,6 +3100,11 @@ function passagemImpactaCapacidade(dados) {
     return dados.impactaCapacidade
   }
 
+  return !isCriancaDeColo(dados?.tarifaTipo)
+}
+
+function passagemImpactaCaixa(dados) {
+  if (typeof dados?.impactaCaixa === 'boolean') return dados.impactaCaixa
   return !isTarifaAntecipada(dados?.tarifaTipo)
 }
 
@@ -3431,10 +3437,10 @@ export async function encerrarVendaPassagemHorario(viagemId, actor = {}) {
   const resumo = {
     fechadoEm,
     totalArrecadado: passagens
-      .filter((item) => item.status !== 'Cancelada')
+      .filter((item) => item.status !== 'Cancelada' && passagemImpactaCaixa(item))
       .reduce((total, item) => total + Number(item.valor || 0), 0),
     passagensDoHorario: passagens.filter((item) => item.status !== 'Cancelada' && passagemImpactaCapacidade(item)).length,
-    passagensAntecipadas: passagens.filter((item) => item.status !== 'Cancelada' && !passagemImpactaCapacidade(item)).length,
+    passagensAntecipadas: passagens.filter((item) => item.status !== 'Cancelada' && isTarifaAntecipada(item.tarifaTipo)).length,
     passagensCanceladas: passagens.filter((item) => item.status === 'Cancelada').length,
   }
 
@@ -3613,10 +3619,10 @@ export function montarResumoVendaPassagemHorario(viagem, passagens = []) {
       abertoEm: viagem?.caixaAbertoEm || null,
       fechadoEm,
       totalArrecadado: passagens
-        .filter((item) => item.status !== 'Cancelada')
+        .filter((item) => item.status !== 'Cancelada' && passagemImpactaCaixa(item))
         .reduce((total, item) => total + Number(item.valor || 0), 0),
       passagensDoHorario: passagens.filter((item) => item.status !== 'Cancelada' && passagemImpactaCapacidade(item)).length,
-      passagensAntecipadas: passagens.filter((item) => item.status !== 'Cancelada' && !passagemImpactaCapacidade(item)).length,
+      passagensAntecipadas: passagens.filter((item) => item.status !== 'Cancelada' && isTarifaAntecipada(item.tarifaTipo)).length,
       passagensCanceladas: passagens.filter((item) => item.status === 'Cancelada').length,
     },
   }
@@ -3765,6 +3771,7 @@ export async function venderPassagem(dados) {
   const empresaNome = dados.empresaNome || ''
   const viagemId = dados.viagemId || gerarViagemOperacionalId(dados)
   const impactaCapacidade = passagemImpactaCapacidade(dados)
+  const impactaCaixa = passagemImpactaCaixa(dados)
   const possuiIdentificacao = Boolean(String(dados.passageiroNome || '').trim() || String(dados.passageiroDocumento || '').trim() || String(dados.passageiroTelefone || '').trim() || String(dados.passageiroEmail || '').trim())
   const passageiro = dados.passageiro?.id
     ? dados.passageiro
@@ -3846,6 +3853,7 @@ export async function venderPassagem(dados) {
         passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
         tarifaTipo: dados.tarifaTipo || 'Inteira',
         impactaCapacidade,
+        impactaCaixa,
         valor: Number(dados.valor || 0),
         formaPagamento: dados.formaPagamento || 'Dinheiro',
         status: 'Vendida',
@@ -3858,7 +3866,7 @@ export async function venderPassagem(dados) {
       })
 
       batch.set(passagemRef, passagemPayload)
-      batch.set(caixaRef, {
+      if (impactaCaixa) batch.set(caixaRef, {
         tipo: 'entrada',
         origem: 'Venda de passagem',
         passagemCodigo: codigo,
@@ -3877,7 +3885,7 @@ export async function venderPassagem(dados) {
       }, { merge: true })
       await batch.commit()
 
-      await ajustarResumoCaixa({
+      if (impactaCaixa) await ajustarResumoCaixa({
         deltaEntrada: Number(dados.valor || 0),
         deltaRegistros: 1,
       })
@@ -3982,6 +3990,7 @@ export async function venderPassagem(dados) {
         passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
         tarifaTipo: dados.tarifaTipo || 'Inteira',
         impactaCapacidade,
+        impactaCaixa,
         valor: Number(dados.valor || 0),
         formaPagamento: dados.formaPagamento || 'Dinheiro',
         status: 'Vendida',
@@ -3993,7 +4002,7 @@ export async function venderPassagem(dados) {
         atualizadoEm: serverTimestamp(),
       })
 
-      transaction.set(caixaRef, {
+      if (impactaCaixa) transaction.set(caixaRef, {
         tipo: 'entrada',
         origem: 'Venda de passagem',
         passagemCodigo: codigo,
@@ -4017,7 +4026,7 @@ export async function venderPassagem(dados) {
       transaction.update(viagemRef, payloadAtualizacaoViagem)
     })
 
-    await ajustarResumoCaixa({
+    if (impactaCaixa) await ajustarResumoCaixa({
       deltaEntrada: Number(dados.valor || 0),
       deltaRegistros: 1,
     })
@@ -4056,6 +4065,7 @@ export async function venderPassagem(dados) {
       passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
       tarifaTipo: dados.tarifaTipo || 'Inteira',
       impactaCapacidade,
+      impactaCaixa,
       valor: Number(dados.valor || 0),
       formaPagamento: dados.formaPagamento || 'Dinheiro',
       status: 'Vendida',
@@ -4134,6 +4144,7 @@ export async function venderPassagem(dados) {
     passageiroTelefone: passageiro.telefone || dados.passageiroTelefone || '',
     tarifaTipo: dados.tarifaTipo || 'Inteira',
     impactaCapacidade,
+    impactaCaixa,
     valor: Number(dados.valor || 0),
     formaPagamento: dados.formaPagamento || 'Dinheiro',
     status: 'Vendida',
@@ -4146,9 +4157,8 @@ export async function venderPassagem(dados) {
   })
 
   store.passagens = [...(store.passagens || []), passagem]
-  store.caixa = [
-    ...(store.caixa || []),
-    {
+  if (impactaCaixa) store.caixa = [
+    ...(store.caixa || []), {
       id: `caixa-${Date.now()}`,
       tipo: 'entrada',
       origem: 'Venda de passagem',
@@ -4169,8 +4179,10 @@ export async function venderPassagem(dados) {
   }
 
   const resumoAtual = garantirResumoCaixaLocal(store)
-  resumoAtual.totalEntrada = Number(resumoAtual.totalEntrada || 0) + Number(dados.valor || 0)
-  resumoAtual.totalRegistros = Number(resumoAtual.totalRegistros || 0) + 1
+  if (impactaCaixa) {
+    resumoAtual.totalEntrada = Number(resumoAtual.totalEntrada || 0) + Number(dados.valor || 0)
+    resumoAtual.totalRegistros = Number(resumoAtual.totalRegistros || 0) + 1
+  }
   writeStore(store)
 
   return passagem
@@ -4403,6 +4415,7 @@ export async function cancelarPassagem(passagem, actorUser = null) {
 
   const timestamp = new Date().toISOString()
   const impactaCapacidade = passagemImpactaCapacidade(passagem)
+  const impactaCaixa = passagemImpactaCaixa(passagem)
 
   if (isConfigured && db) {
     if (shouldUseFirestoreQueuedWrites()) {
@@ -4430,7 +4443,7 @@ export async function cancelarPassagem(passagem, actorUser = null) {
         }, { merge: true })
       }
 
-      batch.set(caixaRef, {
+      if (impactaCaixa) batch.set(caixaRef, {
         tipo: 'entrada',
         origem: 'Estorno de passagem',
         passagemCodigo: passagem.codigo,
@@ -4443,7 +4456,7 @@ export async function cancelarPassagem(passagem, actorUser = null) {
       })
       await batch.commit()
 
-      await ajustarResumoCaixa({
+      if (impactaCaixa) await ajustarResumoCaixa({
         deltaEntrada: -Math.abs(Number(passagem.valor || 0)),
         deltaRegistros: 1,
       })
@@ -4497,7 +4510,7 @@ export async function cancelarPassagem(passagem, actorUser = null) {
       }
     })
 
-    await addDoc(collection(db, 'caixa'), {
+    if (impactaCaixa) await addDoc(collection(db, 'caixa'), {
       tipo: 'entrada',
       origem: 'Estorno de passagem',
       passagemCodigo: passagem.codigo,
@@ -4508,7 +4521,7 @@ export async function cancelarPassagem(passagem, actorUser = null) {
       empresaNome: passagem.empresaNome || '',
       criadoEm: serverTimestamp(),
     })
-    await ajustarResumoCaixa({
+    if (impactaCaixa) await ajustarResumoCaixa({
       deltaEntrada: -Math.abs(Number(passagem.valor || 0)),
       deltaRegistros: 1,
     })
@@ -4544,9 +4557,8 @@ export async function cancelarPassagem(passagem, actorUser = null) {
         }
       : item,
   )
-  store.caixa = [
-    ...(store.caixa || []),
-    {
+  if (impactaCaixa) store.caixa = [
+    ...(store.caixa || []), {
       id: `caixa-${Date.now()}`,
       tipo: 'entrada',
       origem: 'Estorno de passagem',
@@ -4560,8 +4572,10 @@ export async function cancelarPassagem(passagem, actorUser = null) {
     },
   ]
   const resumoCaixa = garantirResumoCaixaLocal(store)
-  resumoCaixa.totalEntrada = Number(resumoCaixa.totalEntrada || 0) - Math.abs(Number(passagem.valor || 0))
-  resumoCaixa.totalRegistros = Number(resumoCaixa.totalRegistros || 0) + 1
+  if (impactaCaixa) {
+    resumoCaixa.totalEntrada = Number(resumoCaixa.totalEntrada || 0) - Math.abs(Number(passagem.valor || 0))
+    resumoCaixa.totalRegistros = Number(resumoCaixa.totalRegistros || 0) + 1
+  }
   writeStore(store)
   await registrarLogUso({
     acao: 'passagem_cancelada',

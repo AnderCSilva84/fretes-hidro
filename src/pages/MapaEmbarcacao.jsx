@@ -6,7 +6,7 @@ import useAuth from '../context/useAuth.js'
 import { abrirVendaPassagemHorario, encerrarVendaPassagemHorario, getViagemById, listarPassagensPorViagem, recuperarCaixaLocalAbertoDaSaida, venderPassagem } from '../services/firebase.js'
 import { formatDateAndTimeBR } from '../utils/date.js'
 import { imprimirPassagensTermicas, imprimirResumoCaixaTermico } from '../utils/bilheteTermico.js'
-import { calcularValorTarifa, isTarifaAntecipada } from '../utils/tarifaUtils.js'
+import { calcularValorTarifa, isCriancaDeColo } from '../utils/tarifaUtils.js'
 
 const MODALIDADES = {
   inteira: { label: 'Pagantes', shortLabel: 'Pagante', color: '#1769e8', light: '#e9f1ff', symbol: 'P' },
@@ -14,18 +14,20 @@ const MODALIDADES = {
   gratuidade: { label: 'Gratuidades', shortLabel: 'Gratuidade', color: '#3b82f6', light: '#eaf2ff', symbol: 'G' },
   estudante: { label: 'Estudantes', shortLabel: 'Estudante', color: '#8b5cf6', light: '#f2eefe', symbol: 'E' },
   'crianca de colo': { label: 'Crianças de colo', shortLabel: 'Colo', color: '#ec4899', light: '#fce7f3', symbol: 'C' },
+  antecipada: { label: 'Antecipadas', shortLabel: 'Antecipada', color: '#d97706', light: '#fef3c7', symbol: 'A' },
   crianca: { label: 'Crianças', shortLabel: 'Criança', color: '#f97316', light: '#fff1e8', symbol: 'C' },
-  idoso: { label: 'Idosos', shortLabel: 'Idoso', color: '#d97706', light: '#fef3c7', symbol: 'I' },
   bloqueado: { label: 'Bloqueados', shortLabel: 'Bloqueado', color: '#64748b', light: '#f1f5f9', symbol: '×' },
 }
 
 const LIVRE = { label: 'Livres', shortLabel: 'Livre', color: '#059669', light: '#ecfdf5', symbol: '✓' }
-const TARIFAS_RAPIDAS = ['Inteira', 'Meia', 'Gratuidade', 'Estudante', 'Crianca de colo', 'Idoso']
+const TARIFAS_RAPIDAS = ['Inteira', 'Meia', 'Gratuidade', 'Estudante', 'Crianca de colo', 'Antecipada']
 const PAGAMENTOS_RAPIDOS = ['Dinheiro', 'Pix', 'Cartao']
 
 function normalizarModalidade(passagem) {
   if (String(passagem?.status || '').toLowerCase() === 'bloqueado') return 'bloqueado'
   const valor = String(passagem?.tarifaTipo || 'Inteira').trim().toLowerCase()
+  if (valor === 'idoso') return 'gratuidade'
+  if (valor === 'passagem antecipada') return 'antecipada'
   return MODALIDADES[valor] ? valor : 'inteira'
 }
 
@@ -33,7 +35,7 @@ function montarAssentos(capacidade, passagens) {
   const ocupadas = new Map()
   const semAssento = []
 
-  passagens.forEach((passagem) => {
+  passagens.filter((passagem) => !isCriancaDeColo(passagem.tarifaTipo)).forEach((passagem) => {
     const numero = Number(String(passagem.assentoCodigo || passagem.assento || '').match(/\d+/)?.[0])
     if (numero >= 1 && numero <= capacidade && !ocupadas.has(numero)) ocupadas.set(numero, passagem)
     else semAssento.push(passagem)
@@ -99,7 +101,7 @@ export default function MapaEmbarcacao() {
         : null
       if (!active) return
       setViagem(viagemAtual || caixaLocalRecuperado || (possuiFallback ? viagemFallback : null))
-      setPassagens((passagensAtuais || []).filter((item) => String(item.status || '').toLowerCase() !== 'cancelada' && !isTarifaAntecipada(item.tarifaTipo)))
+      setPassagens((passagensAtuais || []).filter((item) => String(item.status || '').toLowerCase() !== 'cancelada'))
       if (!viagemAtual && !possuiFallback) setError('Viagem não encontrada ou indisponível para esta empresa.')
     }).catch((runtimeError) => {
       if (active) setError(runtimeError.message || 'Não foi possível carregar o mapa da embarcação.')
@@ -110,13 +112,14 @@ export default function MapaEmbarcacao() {
   }, [empresaId, empresaNome, searchParams, viagemId])
 
   const capacidade = Math.max(0, Number(viagem?.capacidadeTotal || 0))
+  const passageirosContabilizados = passagens.filter((item) => !isCriancaDeColo(item.tarifaTipo))
   const assentos = useMemo(() => montarAssentos(capacidade, passagens), [capacidade, passagens])
   const totais = useMemo(() => assentos.reduce((acc, assento) => {
     acc[assento.modalidade] = (acc[assento.modalidade] || 0) + 1
     return acc
-  }, {}), [assentos])
+  }, { 'crianca de colo': passagens.filter((item) => isCriancaDeColo(item.tarifaTipo)).length }), [assentos, passagens])
   const modalidadesVisiveis = Object.entries(MODALIDADES).filter(([key]) => totais[key])
-  const pedeIdentificacao = ['Gratuidade', 'Estudante', 'Idoso'].includes(tarifaTipo)
+  const pedeIdentificacao = ['Gratuidade', 'Estudante'].includes(tarifaTipo)
   const caixaAberto = Boolean(viagem?.caixaAbertoEm && !viagem?.caixaFechadoEm)
 
   async function abrirCaixa() {
@@ -204,7 +207,7 @@ export default function MapaEmbarcacao() {
         horarioSaida: viagem.horarioSaida || '',
         capacidadeTotal: viagem.capacidadeTotal || 0,
         duracaoMinutos: viagem.duracaoMinutos || 0,
-        assentoCodigo: codigoAssento,
+        assentoCodigo: isCriancaDeColo(tarifaTipo) ? '' : codigoAssento,
         passageiroNome: dadosPassageiro.nome,
         passageiroDocumento: dadosPassageiro.documento,
         tarifaTipo,
@@ -257,9 +260,9 @@ export default function MapaEmbarcacao() {
           {!error && !loading ? <div className="p-4 sm:p-7">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Summary label="Capacidade" value={capacidade} color="#0a2d61" />
-              <Summary label="Passageiros" value={passagens.length} color="#1769e8" />
+              <Summary label="Passageiros" value={passageirosContabilizados.length} color="#1769e8" />
               <Summary label="Livres" value={totais.livre || 0} color={LIVRE.color} />
-              <Summary label="Ocupação" value={`${capacidade ? Math.round((passagens.length / capacidade) * 100) : 0}%`} color="#8b5cf6" />
+              <Summary label="Ocupação" value={`${capacidade ? Math.round((passageirosContabilizados.length / capacidade) * 100) : 0}%`} color="#8b5cf6" />
             </div>
 
             <div className={`mt-4 flex flex-col gap-3 rounded-2xl border px-4 py-4 sm:flex-row sm:items-center sm:justify-between ${caixaAberto ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
@@ -294,7 +297,7 @@ export default function MapaEmbarcacao() {
               <Link to="/nova-passagem" className="flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-[#062f70] px-5 py-3 font-bold text-white shadow-[0_12px_25px_rgba(6,47,112,0.2)]">
                 <PeopleIcon className="h-5 w-5" />Voltar para venda de passagem
               </Link>
-              <Link to={`/manifesto/${viagemId}`} className="flex min-h-14 items-center justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 font-bold text-[#0a2d61]">Ver passageiros do caixa ({passagens.length})</Link>
+              <Link to={`/manifesto/${viagemId}`} className="flex min-h-14 items-center justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 font-bold text-[#0a2d61]">Ver passageiros do caixa ({passageirosContabilizados.length})</Link>
             </div>
           </div> : null}
         </section>

@@ -1,5 +1,9 @@
 export function isTarifaAntecipada(tarifaTipo) {
-  return String(tarifaTipo || '').trim().toLowerCase() === 'passagem antecipada'
+  return ['antecipada', 'passagem antecipada'].includes(String(tarifaTipo || '').trim().toLowerCase())
+}
+
+export function isCriancaDeColo(tarifaTipo) {
+  return String(tarifaTipo || '').trim().toLowerCase() === 'crianca de colo'
 }
 
 export function calcularValorTarifa(tarifaTipo, valorPadrao = 0) {
@@ -13,7 +17,7 @@ export function calcularValorTarifa(tarifaTipo, valorPadrao = 0) {
     return valorBase.toFixed(2)
   }
 
-  if (['Estudante', 'Gratuidade', 'Crianca de colo', 'Crianca', 'Idoso'].includes(tarifaTipo)) {
+  if (['Estudante', 'Gratuidade', 'Crianca de colo', 'Crianca'].includes(tarifaTipo)) {
     return ''
   }
 

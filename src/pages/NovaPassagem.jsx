@@ -180,12 +180,8 @@ function getTarifaHistoricoStyle(tarifaTipo = '') {
     return 'border-sky-200 bg-sky-50 text-sky-800'
   }
 
-  if (normalized === 'passagem antecipada') {
+  if (['antecipada', 'passagem antecipada'].includes(normalized)) {
     return 'border-slate-300 bg-slate-100 text-slate-700'
-  }
-
-  if (normalized === 'idoso') {
-    return 'border-orange-200 bg-orange-50 text-orange-800'
   }
 
   return 'border-blue-100 bg-blue-50 text-[#1657d8]'
@@ -1065,7 +1061,7 @@ export default function NovaPassagem() {
                       }}
                       className="min-h-10 rounded-[1.1rem] border border-blue-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-[#1c63e7] focus:ring-4 focus:ring-blue-100"
                     >
-                      {['Inteira', 'Meia', 'Passagem antecipada', 'Gratuidade', 'Estudante', 'Crianca de colo', 'Idoso'].map((item) => (
+                      {['Inteira', 'Meia', 'Antecipada', 'Gratuidade', 'Estudante', 'Crianca de colo'].map((item) => (
                         <option key={item} value={item}>
                           {item}
                         </option>
@@ -1113,7 +1109,7 @@ export default function NovaPassagem() {
 
             {tarifaAntecipada ? (
               <div className="rounded-[1.4rem] border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-800">
-                `Passagem antecipada` nao consome vaga da capacidade atual desta lancha.
+                `Antecipada` ocupa assento, mas nao entra como dinheiro neste caixa.
               </div>
             ) : null}
 

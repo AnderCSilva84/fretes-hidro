@@ -9,6 +9,7 @@ import { getViagemById, listarPassagensPorViagem } from '../services/firebase.js
 import { formatDateAndTimeBR } from '../utils/date.js'
 import { imprimirPassagensTermicas } from '../utils/bilheteTermico.js'
 import { abrirManifestoViagem } from '../utils/manifestoViagemPdf.js'
+import { isCriancaDeColo } from '../utils/tarifaUtils.js'
 
 export default function ManifestoViagem() {
   const { viagemId } = useParams()
@@ -46,9 +47,9 @@ export default function ManifestoViagem() {
   }, [empresaId, empresaNome, viagemId])
 
   const resumo = useMemo(() => ({
-    vendido: passagens.filter((item) => item.status !== 'Cancelada').length,
-    embarcado: passagens.filter((item) => item.status === 'Embarcado').length,
-    pendente: passagens.filter((item) => !['Embarcado', 'Cancelada'].includes(item.status)).length,
+    vendido: passagens.filter((item) => item.status !== 'Cancelada' && !isCriancaDeColo(item.tarifaTipo)).length,
+    embarcado: passagens.filter((item) => item.status === 'Embarcado' && !isCriancaDeColo(item.tarifaTipo)).length,
+    pendente: passagens.filter((item) => !['Embarcado', 'Cancelada'].includes(item.status) && !isCriancaDeColo(item.tarifaTipo)).length,
     cancelado: passagens.filter((item) => item.status === 'Cancelada').length,
   }), [passagens])
 
