@@ -12,8 +12,32 @@ if (window.location.hash.startsWith('#/')) {
   window.history.replaceState(null, '', destino || '/')
 }
 
-registerSW({
+let aplicarAtualizacao = () => Promise.resolve()
+let recarregandoPorAtualizacao = false
+
+aplicarAtualizacao = registerSW({
   immediate: true,
+  onNeedRefresh() {
+    void aplicarAtualizacao(true)
+  },
+  onRegisteredSW(_swUrl, registration) {
+    if (!registration) return
+
+    void registration.update()
+    window.setInterval(() => {
+      if (navigator.onLine) void registration.update()
+    }, 60 * 1000)
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) void registration.update()
+    })
+  },
+})
+
+navigator.serviceWorker?.addEventListener('controllerchange', () => {
+  if (recarregandoPorAtualizacao) return
+  recarregandoPorAtualizacao = true
+  window.location.reload()
 })
 
 const bootSplash = document.getElementById('boot-splash')
