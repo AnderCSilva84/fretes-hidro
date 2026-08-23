@@ -5,6 +5,7 @@ import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
 import { abrirVendaPassagemHorario, encerrarVendaPassagemHorario, getViagemById, listarPassagensPorViagem, recuperarCaixaLocalAbertoDaSaida, venderPassagem } from '../services/firebase.js'
 import { formatDateAndTimeBR } from '../utils/date.js'
+import { imprimirPassagensTermicas } from '../utils/bilheteTermico.js'
 import { calcularValorTarifa, isTarifaAntecipada } from '../utils/tarifaUtils.js'
 
 const MODALIDADES = {
@@ -195,7 +196,14 @@ export default function MapaEmbarcacao() {
         operadorEmail: user?.email || '',
       })
       setPassagens((current) => [...current, passagem])
-      setSucesso(`Assento ${String(assentoVenda).padStart(2, '0')} vendido.`)
+      let comprovanteImpresso = true
+      try {
+        await imprimirPassagensTermicas(passagem)
+      } catch (printError) {
+        comprovanteImpresso = false
+        setError(`Venda concluida, mas o comprovante nao abriu para impressao: ${printError?.message || 'verifique a impressora ou a permissao de pop-up.'}`)
+      }
+      setSucesso(`Assento ${String(assentoVenda).padStart(2, '0')} vendido.${comprovanteImpresso ? ' Comprovante enviado para impressao.' : ''}`)
       setAssentoVenda(null)
       setTarifaTipo('Inteira')
       setFormaPagamento('Dinheiro')
@@ -301,7 +309,7 @@ export default function MapaEmbarcacao() {
             </div>
 
             <button type="button" onClick={confirmarVendaRapida} disabled={vendendo} className="mt-5 flex min-h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 px-5 text-base font-black text-white shadow-[0_12px_24px_rgba(5,150,105,0.25)] disabled:opacity-60">
-              {vendendo ? 'Vendendo...' : `Confirmar • ${calcularValorTarifa(tarifaTipo, viagem?.valorPadrao || 0) ? `R$ ${Number(calcularValorTarifa(tarifaTipo, viagem?.valorPadrao || 0)).toFixed(2)}` : 'Isento'}`}
+              {vendendo ? 'Vendendo e imprimindo...' : `Vender e imprimir • ${calcularValorTarifa(tarifaTipo, viagem?.valorPadrao || 0) ? `R$ ${Number(calcularValorTarifa(tarifaTipo, viagem?.valorPadrao || 0)).toFixed(2)}` : 'Isento'}`}
             </button>
           </section>
         </div>
