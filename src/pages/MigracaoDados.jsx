@@ -19,10 +19,11 @@ export default function MigracaoDados() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [confirming, setConfirming] = useState(false)
 
   async function migrate() {
-    if (!window.confirm(`Enviar ${summary.total} registros locais deste computador para a base central do NAVIA?`)) return
     setBusy(true)
+    setConfirming(false)
     setMessage('')
     setError('')
     try {
@@ -51,8 +52,15 @@ export default function MigracaoDados() {
         </div>
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div><p className="font-bold text-slate-900">Total: {summary.total} registros locais</p>{summary.completed && <p className="text-sm text-emerald-700">Ultima migracao: {new Date(summary.completed).toLocaleString('pt-BR')}</p>}</div>
-          <Button type="button" onClick={migrate} disabled={busy || !summary.available || !summary.firebaseConfigured}>{busy ? 'Migrando...' : 'Migrar para a base central'}</Button>
+          <Button type="button" onClick={() => setConfirming(true)} disabled={busy || !summary.available || !summary.firebaseConfigured}>{busy ? 'Migrando...' : 'Migrar para a base central'}</Button>
         </div>
+        {confirming && <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="font-bold text-amber-900">Enviar {summary.total} registros locais deste computador para o Firebase do NAVIA?</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" onClick={migrate} disabled={busy}>Confirmar envio</Button>
+            <Button type="button" variant="secondary" onClick={() => setConfirming(false)} disabled={busy}>Cancelar</Button>
+          </div>
+        </div>}
         {message && <p className="mt-4 rounded-2xl bg-emerald-50 p-4 font-semibold text-emerald-800">{message}</p>}
         {error && <p className="mt-4 rounded-2xl bg-rose-50 p-4 font-semibold text-rose-800">{error}</p>}
       </PageShell>
