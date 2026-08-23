@@ -54,12 +54,7 @@ function isAndroidDevice() {
 
 function shouldTryRawBt() {
   const mode = readThermalPrintMode()
-
-  if (mode === 'browser-only' || mode === 'agent-only') {
-    return false
-  }
-
-  return isAndroidDevice()
+  return mode === 'rawbt' && isAndroidDevice()
 }
 
 function appendBytes(target, ...values) {
@@ -619,14 +614,18 @@ export async function imprimirPassagensTermicas(passagens) {
     return null
   }
 
-  if (tryRawBtPrint(itens)) {
-    return null
-  }
-
   const printedByAgent = await trySilentThermalPrint(itens)
 
   if (printedByAgent) {
     return null
+  }
+
+  if (tryRawBtPrint(itens)) {
+    return null
+  }
+
+  if (isAndroidDevice()) {
+    throw new Error('A impressora nativa deste terminal ainda nao esta conectada ao NAVIA.')
   }
 
   const popup = window.open('', '_blank', 'width=420,height=760')
