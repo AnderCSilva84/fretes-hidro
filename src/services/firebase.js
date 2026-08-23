@@ -9,12 +9,9 @@ import {
   getFirestore,
   getDoc,
   increment,
-  initializeFirestore,
   limit,
   onSnapshot,
   orderBy,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   query,
   setDoc,
   startAt,
@@ -49,12 +46,15 @@ import { calcularHorarioChegada, gerarCodigoPassagem, normalizarDocumento } from
 import { getWeekdayLabelBR } from '../utils/date.js'
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  // Firebase Web config is a public project identifier. Keeping the NAVIA
+  // defaults here prevents a build without environment injection from ever
+  // falling back to a device-only database.
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDGI8fhV7eSJcrHiBaVeWP0zYDxs9K06Bo',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'fretes-pwa.firebaseapp.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'fretes-pwa',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'fretes-pwa.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '9820708250',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:9820708250:web:1933b85769c8075201ee23',
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 }
 
@@ -63,23 +63,14 @@ let app = null
 let auth = null
 let db = null
 let storage = null
-let firestoreCacheEnabled = false
+const firestoreCacheEnabled = false
 
 if (isConfigured) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig)
   auth = getAuth(app)
   storage = getStorage(app)
 
-  try {
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
-      }),
-    })
-    firestoreCacheEnabled = true
-  } catch {
-    db = getFirestore(app)
-  }
+  db = getFirestore(app)
 }
 
 const storageKey = 'fretes-pwa-demo-store'
@@ -437,39 +428,11 @@ function migrateStore(store) {
 }
 
 function readStore() {
-  if (typeof window === 'undefined') {
-    return migrateStore(seedStore)
-  }
-
-  const raw = window.localStorage.getItem(storageKey)
-
-  if (!raw) {
-    const migratedSeed = migrateStore(seedStore)
-    window.localStorage.setItem(storageKey, JSON.stringify(migratedSeed))
-    return migratedSeed
-  }
-
-  try {
-    const migrated = migrateStore(JSON.parse(raw))
-    window.localStorage.setItem(storageKey, JSON.stringify(migrated))
-    return migrated
-  } catch {
-    const migratedSeed = migrateStore(seedStore)
-    window.localStorage.setItem(storageKey, JSON.stringify(migratedSeed))
-    return migratedSeed
-  }
+  throw new Error('Banco central do NAVIA indisponivel. Verifique a internet e tente novamente.')
 }
 
-function writeStore(nextStore) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  const migratedStore = migrateStore(nextStore)
-  window.localStorage.setItem(storageKey, JSON.stringify(migratedStore))
-  for (const callback of listeners.values()) {
-    callback(structuredClone(migratedStore))
-  }
+function writeStore() {
+  throw new Error('O NAVIA nao permite gravacao local. Conecte-se ao banco central para continuar.')
 }
 
 function notifyAuthListeners(user) {
@@ -540,9 +503,9 @@ function shouldUseFirestoreQueuedWrites() {
 export function getOfflineCapabilities() {
   return {
     usesFirebase: isConfigured,
-    usesLocalStore: !isConfigured,
-    localCacheEnabled: firestoreCacheEnabled,
-    supportsQueuedWrites: Boolean(isConfigured && db && firestoreCacheEnabled),
+    usesLocalStore: false,
+    localCacheEnabled: false,
+    supportsQueuedWrites: false,
   }
 }
 

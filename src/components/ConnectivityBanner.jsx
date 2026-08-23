@@ -37,7 +37,7 @@ export default function ConnectivityBanner() {
     }
   }, [capabilities.supportsQueuedWrites, isOnline, summary.pending, syncing])
 
-  if (isOnline && !capabilities.usesLocalStore && summary.total === 0) {
+  if (isOnline && summary.total === 0) {
     return null
   }
 
@@ -67,14 +67,6 @@ export default function ConnectivityBanner() {
 }
 
 function getBannerVisual({ isOnline, capabilities, summary, syncing }) {
-  if (capabilities.usesLocalStore) {
-    return {
-      className: 'border-sky-200 bg-sky-50 text-sky-900',
-      title: 'Modo local ativo',
-      message: 'Este aparelho consegue continuar operando com os dados salvos localmente.',
-    }
-  }
-
   if (!isOnline && capabilities.supportsQueuedWrites) {
     return {
       className: 'border-amber-200 bg-amber-50 text-amber-900',
@@ -104,8 +96,8 @@ function getBannerVisual({ isOnline, capabilities, summary, syncing }) {
   if (!isOnline) {
     return {
       className: 'border-rose-200 bg-rose-50 text-rose-900',
-      title: 'Sem internet',
-      message: 'Algumas acoes podem falhar ate a conexao voltar porque este navegador nao habilitou sincronizacao local completa.',
+      title: 'Banco central indisponivel',
+      message: 'O NAVIA exige internet e nao grava dados somente neste aparelho. Reconecte para consultar ou cadastrar.',
     }
   }
 
