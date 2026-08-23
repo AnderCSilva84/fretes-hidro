@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { BoatIcon, PeopleIcon } from '../components/AppIcons.jsx'
 import Button from '../components/Button.jsx'
 import Input from '../components/Input.jsx'
@@ -6,7 +7,7 @@ import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import useCollectionOnce from '../hooks/useCollectionOnce.js'
-import { abrirVendaPassagemHorario, buscarPassageiros, cancelarPassagem, encerrarVendaPassagemHorario, gerarViagemOperacionalId, isCaixaPassagemAbertoAtivo, listarPassagensPorViagem, listarViagens, prepararPassageiroPassagem, subscribeCollection, venderPassagem } from '../services/firebase.js'
+import { abrirVendaPassagemHorario, buscarPassageiros, cancelarPassagem, encerrarVendaPassagemHorario, gerarViagemOperacionalId, getViagemById, isCaixaPassagemAbertoAtivo, listarPassagensPorViagem, listarViagens, prepararPassageiroPassagem, subscribeCollection, venderPassagem } from '../services/firebase.js'
 import { abrirBilhetePassagem } from '../utils/bilhetePassagemPdf.js'
 import { abrirJanelaImpressaoTermica, imprimirPassagensTermicas } from '../utils/bilheteTermico.js'
 import { formatDateAndTimeBR, formatDateBR, formatDateTimeBR } from '../utils/date.js'
@@ -244,6 +245,7 @@ function countPassagensVendidas(passagens = []) {
 
 export default function NovaPassagem() {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
   const { items: rotasBase } = useCollectionOnce('rotasValores', { empresaId, empresaNome })
@@ -261,6 +263,29 @@ export default function NovaPassagem() {
       return initialForm
     }
   })
+  const assentoSelecionado = searchParams.get('assento') || ''
+
+  useEffect(() => {
+    const viagemIdParam = searchParams.get('viagemId')
+    if (!viagemIdParam || !assentoSelecionado) return
+
+    let active = true
+    getViagemById(viagemIdParam, { empresaId, empresaNome }).then((viagemAtual) => {
+      if (!active || !viagemAtual) return
+      setForm((current) => ({
+        ...current,
+        dataViagem: viagemAtual.dataViagem || current.dataViagem,
+        rotaId: viagemAtual.rotaId || '',
+        embarcacaoId: viagemAtual.embarcacaoId || '',
+        horarioSaida: viagemAtual.horarioSaida || '',
+        itensVenda: [{
+          ...createTarifaItem(`assento-${assentoSelecionado}`),
+          valor: calcularValorTarifa('Inteira', viagemAtual.valorPadrao || 0),
+        }],
+      }))
+    })
+    return () => { active = false }
+  }, [assentoSelecionado, empresaId, empresaNome, searchParams])
   const [sugestoes, setSugestoes] = useState([])
   const [loadingSugestoes, setLoadingSugestoes] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -697,6 +722,12 @@ export default function NovaPassagem() {
       return
     }
 
+    const quantidadeTotal = (form.itensVenda || []).reduce((total, item) => total + Math.max(1, Number(item.quantidade || 1)), 0)
+    if (assentoSelecionado && quantidadeTotal !== 1) {
+      setError('A venda iniciada pelo mapa deve conter uma passagem. Para vender mais lugares, selecione cada assento no mapa.')
+      return
+    }
+
     setBusy(true)
     setError('')
     setSuccess('')
@@ -731,6 +762,7 @@ export default function NovaPassagem() {
             embarcacaoNome: viagemSelecionada.embarcacaoNome,
             dataViagem: viagemSelecionada.dataViagem,
             horarioSaida: viagemSelecionada.horarioSaida,
+            assentoCodigo: assentoSelecionado ? String(assentoSelecionado).padStart(2, '0') : '',
             capacidadeTotal: viagemSelecionada.capacidadeTotal,
             duracaoMinutos: viagemSelecionada.duracaoMinutos || 0,
             passageiro: passageiroBase,
@@ -777,6 +809,7 @@ export default function NovaPassagem() {
           ? `${passagensVendidas.length} passagem(ns) registrada(s). Itens antecipados nao consumiram vaga deste horario.`
           : `${passagensVendidas.length} passagem(ns) vendida(s) com sucesso.`,
       )
+      if (assentoSelecionado) setSearchParams({}, { replace: true })
 
       if (mode === 'print') {
         await imprimirPassagensTermicas(passagensVendidas)
@@ -880,6 +913,12 @@ export default function NovaPassagem() {
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.02fr)_minmax(22rem,0.98fr)]">
         <PageShell title="Venda de passagem" showEyebrow={false}>
           <div className="space-y-4">
+            {assentoSelecionado ? (
+              <div className="flex items-center justify-between gap-3 rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900">
+                <div><p className="text-xs font-bold uppercase tracking-[0.12em]">Assento selecionado</p><p className="mt-1 text-xl font-black">Vaga {String(assentoSelecionado).padStart(2, '0')}</p></div>
+                {viagemSelecionada ? <Link to={`/mapa-embarcacao/${viagemSelecionada.id}`} className="text-sm font-bold underline">Trocar</Link> : null}
+              </div>
+            ) : null}
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Input
                 label="Data da viagem"
@@ -1162,6 +1201,11 @@ export default function NovaPassagem() {
             <Resumo label="Tarifa base" value={`R$ ${Number(viagemSelecionada?.valorPadrao || 0).toFixed(2)}`} />
             <Resumo label="Total da venda" value={`R$ ${totalVendaAtual.toFixed(2)}`} />
           </div>
+          {viagemSelecionada ? (
+            <Link to={`/mapa-embarcacao/${viagemSelecionada.id}`} className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#0a2d61] px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(10,45,97,0.18)]">
+              <BoatIcon className="h-5 w-5" /> Abrir mapa de assentos
+            </Link>
+          ) : null}
         </PageShell>
 
         <PageShell title="Historico do embarque" showEyebrow={false} titleClassName="text-[1.7rem] sm:text-[2rem]">

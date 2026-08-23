@@ -3571,9 +3571,10 @@ export async function venderPassagem(dados) {
   const empresaNome = dados.empresaNome || ''
   const viagemId = dados.viagemId || gerarViagemOperacionalId(dados)
   const impactaCapacidade = passagemImpactaCapacidade(dados)
+  const possuiIdentificacao = Boolean(String(dados.passageiroNome || '').trim() || String(dados.passageiroDocumento || '').trim() || String(dados.passageiroTelefone || '').trim() || String(dados.passageiroEmail || '').trim())
   const passageiro = dados.passageiro?.id
     ? dados.passageiro
-    : await encontrarOuCriarPassageiro({
+    : possuiIdentificacao ? await encontrarOuCriarPassageiro({
         empresaId,
         empresaNome,
         nome: dados.passageiroNome,
@@ -3581,7 +3582,7 @@ export async function venderPassagem(dados) {
         documento: dados.passageiroDocumento,
         email: dados.passageiroEmail,
         tipo: dados.tipoPassageiro || 'Adulto',
-      })
+      }) : { id: '', nome: '', documento: '', telefone: '' }
   const codigo = await gerarCodigoPassagem(obterUltimoCodigoPassagemPorPrefixo)
   const qrTargetUrl = montarUrlEmbarquePassagem(codigo)
   const qrCodeDataUrl = dados.qrCodeDataUrl || ''
@@ -3644,6 +3645,7 @@ export async function venderPassagem(dados) {
         embarcacaoNome: dados.embarcacaoNome || viagemBase.embarcacaoNome || '',
         dataViagem: dados.dataViagem || viagemBase.dataViagem || '',
         horarioSaida: dados.horarioSaida || viagemBase.horarioSaida || '',
+        assentoCodigo: dados.assentoCodigo || '',
         passageiroId: passageiro.id,
         passageiroNome: passageiro.nome || dados.passageiroNome || '',
         passageiroDocumento: normalizarDocumento(passageiro.documento || dados.passageiroDocumento),
@@ -3853,6 +3855,7 @@ export async function venderPassagem(dados) {
       embarcacaoNome: dados.embarcacaoNome || '',
       dataViagem: dados.dataViagem || '',
       horarioSaida: dados.horarioSaida || '',
+      assentoCodigo: dados.assentoCodigo || '',
       passageiroId: passageiro.id,
       passageiroNome: passageiro.nome || dados.passageiroNome || '',
       passageiroDocumento: normalizarDocumento(passageiro.documento || dados.passageiroDocumento),
@@ -3930,6 +3933,7 @@ export async function venderPassagem(dados) {
     embarcacaoNome: dados.embarcacaoNome || viagemAtual.embarcacaoNome || '',
     dataViagem: dados.dataViagem || viagemAtual.dataViagem || '',
     horarioSaida: dados.horarioSaida || viagemAtual.horarioSaida || '',
+    assentoCodigo: dados.assentoCodigo || '',
     passageiroId: passageiro.id,
     passageiroNome: passageiro.nome || dados.passageiroNome || '',
     passageiroDocumento: normalizarDocumento(passageiro.documento || dados.passageiroDocumento),

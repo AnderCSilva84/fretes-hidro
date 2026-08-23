@@ -69,7 +69,7 @@ export default function Sidebar({ open = false, onClose }) {
   const freteItems = canAccessFretes
     ? [
         { to: '/nova-comanda', label: 'Novo Frete', icon: PlusIcon },
-        ...(managementAccess ? [{ to: '/clientes', label: 'Clientes', icon: PeopleIcon }, { to: '/encomendas', label: 'Encomendas', icon: PackageIcon }] : []),
+        ...(managementAccess ? [{ to: '/encomendas', label: 'Encomendas', icon: PackageIcon }] : []),
         { to: '/scanner-retirada', label: 'Scanner Retirada', icon: SearchIcon },
       ]
     : []
@@ -77,13 +77,14 @@ export default function Sidebar({ open = false, onClose }) {
   const passagemItems = canAccessPassagens
     ? [
         { to: '/nova-passagem', label: 'Nova Passagem', icon: PlusIcon },
-        ...(managementAccess ? [{ to: '/passageiros', label: 'Passageiros', icon: PeopleIcon }] : []),
         { to: '/passagens', label: 'Passagens', icon: PackageIcon },
         { to: '/scanner-embarque', label: 'Scanner Embarque', icon: SearchIcon },
       ]
     : []
 
-  const sharedItems = [
+  const cadastroItems = [
+    ...(managementAccess && canAccessFretes ? [{ to: '/clientes', label: 'Clientes', icon: PeopleIcon }] : []),
+    ...(managementAccess && canAccessPassagens ? [{ to: '/passageiros', label: 'Passageiros', icon: PeopleIcon }] : []),
     ...(managementAccess || terminalSuperadminReadAccess
       ? [
           { to: '/viagens', label: 'Linhas e Horarios', icon: BoatIcon },
@@ -92,14 +93,19 @@ export default function Sidebar({ open = false, onClose }) {
           { to: '/rotas-valores', label: 'Rotas e Valores', icon: RouteIcon },
         ]
       : []),
-    { to: '/caixa', label: 'Caixa', icon: MoneyIcon },
+    ...(!terminalEnvironment && user?.perfil === 'superadmin'
+      ? [
+          { to: '/usuarios', label: 'Usuarios', icon: ShieldIcon },
+          { to: '/empresas', label: 'Empresas', icon: BuildingIcon },
+        ]
+      : []),
   ]
+
+  const sharedItems = [{ to: '/caixa', label: 'Caixa', icon: MoneyIcon }]
 
   const adminItems =
     !terminalEnvironment && user?.perfil === 'superadmin'
       ? [
-          { to: '/usuarios', label: 'Usuarios', icon: ShieldIcon },
-          { to: '/empresas', label: 'Empresas', icon: BuildingIcon },
           ...(user?.rootSuperadmin ? [{ to: '/logs-uso', label: 'Logs de uso', icon: ClipboardIcon }] : []),
         ]
       : []
@@ -151,7 +157,8 @@ export default function Sidebar({ open = false, onClose }) {
         <SidebarSection title="Inicio" items={dashboardItems} onClose={onClose} />
         <SidebarSection title="Fretes" items={freteItems} onClose={onClose} />
         <SidebarSection title="Passagens" items={passagemItems} onClose={onClose} />
-        <SidebarSection title="Estrutura Compartilhada" items={sharedItems} onClose={onClose} />
+        <SidebarSection title="Cadastros" items={cadastroItems} onClose={onClose} />
+        <SidebarSection title="Operacao" items={sharedItems} onClose={onClose} />
         <SidebarSection title="Administracao" items={adminItems} onClose={onClose} />
       </nav>
 

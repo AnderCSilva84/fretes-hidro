@@ -18,6 +18,7 @@ const Encomendas = lazyWithRetry(() => import('../pages/Encomendas.jsx'), 'encom
 const Empresas = lazyWithRetry(() => import('../pages/Empresas.jsx'), 'empresas')
 const LogsUso = lazyWithRetry(() => import('../pages/LogsUso.jsx'), 'logs-uso')
 const ManifestoViagem = lazyWithRetry(() => import('../pages/ManifestoViagem.jsx'), 'manifesto-viagem')
+const MapaEmbarcacao = lazyWithRetry(() => import('../pages/MapaEmbarcacao.jsx'), 'mapa-embarcacao')
 const NovaComanda = lazyWithRetry(() => import('../pages/NovaComanda.jsx'), 'nova-comanda')
 const NovaPassagem = lazyWithRetry(() => import('../pages/NovaPassagem.jsx'), 'nova-passagem')
 const Passagens = lazyWithRetry(() => import('../pages/Passagens.jsx'), 'passagens')
@@ -73,6 +74,7 @@ export default function AppRoutes() {
               <Route path="/nova-passagem" element={<NovaPassagem />} />
               <Route path="/passagens" element={<Passagens />} />
               <Route path="/scanner-embarque" element={<ScannerEmbarque />} />
+              <Route path="/mapa-embarcacao/:viagemId" element={<MapaEmbarcacao />} />
               <Route element={<ProtectedRoute requiredEnvironment={APP_ENVIRONMENTS.DESKTOP} />}>
                 <Route path="/manifesto/:viagemId" element={<ManifestoViagem />} />
               </Route>
