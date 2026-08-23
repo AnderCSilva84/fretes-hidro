@@ -140,7 +140,8 @@ function tryRawBtPrint(passagens) {
 }
 
 async function tryNativeQ2iPrint(passagens) {
-  if (!Capacitor.isNativePlatform()) return false
+  const nativeBridgeAvailable = Capacitor.isNativePlatform() || Capacitor.isPluginAvailable('NaviaPrinter')
+  if (!nativeBridgeAvailable) return false
 
   for (const passagem of passagens) {
     await NaviaPrinter.print({
