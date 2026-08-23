@@ -6,7 +6,7 @@ import Input from '../components/Input.jsx'
 import SystemFooter from '../components/SystemFooter.jsx'
 import useAuth from '../context/useAuth.js'
 import { ROOT_SUPERADMIN_EMAIL, SYSTEM_ICON_SRC, SYSTEM_NAME } from '../utils/systemConfig.js'
-import { canUseEnvironment, getDefaultHomeRoute } from '../utils/accessControl.js'
+import { canUseEnvironment } from '../utils/accessControl.js'
 import { APP_ENVIRONMENTS, readAppEnvironment, writeAppEnvironment } from '../utils/appEnvironment.js'
 
 export default function Login({ environment = null }) {
@@ -27,7 +27,7 @@ export default function Login({ environment = null }) {
     if (ready && user) {
       const currentEnvironment = environment || readAppEnvironment()
       if (canUseEnvironment(user, currentEnvironment)) {
-        navigate(getDefaultHomeRoute(user, currentEnvironment), { replace: true })
+        navigate('/', { replace: true })
       } else {
         void logout()
       }
@@ -48,7 +48,7 @@ export default function Login({ environment = null }) {
         throw new Error('O perfil gestor deve acessar pelo computador.')
       }
 
-      navigate(getDefaultHomeRoute(loggedUser, currentEnvironment))
+        navigate('/', { replace: true })
     } catch (submitError) {
       setError(submitError.message || 'Nao foi possivel entrar')
     } finally {

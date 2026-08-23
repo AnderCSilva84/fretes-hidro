@@ -1,10 +1,11 @@
-import { Suspense } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppSplashScreen from '../components/AppSplashScreen.jsx'
 import ProtectedRoute from '../components/ProtectedRoute.jsx'
 import RouteErrorBoundary from '../components/RouteErrorBoundary.jsx'
 import useAuth from '../context/useAuth.js'
-import { getDefaultHomeRoute } from '../utils/accessControl.js'
+import { obterCaixaPassagemAberto } from '../services/firebase.js'
+import { getDefaultHomeRoute, hasModuleAccess } from '../utils/accessControl.js'
 import { APP_ENVIRONMENTS } from '../utils/appEnvironment.js'
 import { lazyWithRetry } from '../utils/lazyWithRetry.js'
 
@@ -34,7 +35,35 @@ const Viagens = lazyWithRetry(() => import('../pages/Viagens.jsx'), 'viagens')
 
 function HomeRedirect() {
   const { user } = useAuth()
-  return <Navigate to={getDefaultHomeRoute(user)} replace />
+  const userKey = user?.uid || user?.email || ''
+  const [resolvedRoute, setResolvedRoute] = useState({ userKey: '', target: '' })
+
+  useEffect(() => {
+    let active = true
+    const fallback = getDefaultHomeRoute(user)
+
+    if (!user || !hasModuleAccess(user, 'passagens')) {
+      Promise.resolve().then(() => {
+        if (active) setResolvedRoute({ userKey, target: fallback })
+      })
+      return () => { active = false }
+    }
+
+    obterCaixaPassagemAberto({
+      empresaId: user.rootSuperadmin ? '' : user.empresaId || '',
+      empresaNome: user.empresaNome || '',
+    }).then((caixaAberto) => {
+      if (active) setResolvedRoute({ userKey, target: caixaAberto?.id ? `/mapa-embarcacao/${caixaAberto.id}` : fallback })
+    }).catch(() => {
+      if (active) setResolvedRoute({ userKey, target: fallback })
+    })
+
+    return () => { active = false }
+  }, [user, userKey])
+
+  return resolvedRoute.userKey === userKey && resolvedRoute.target
+    ? <Navigate to={resolvedRoute.target} replace />
+    : <AppSplashScreen message="Recuperando caixa aberto..." />
 }
 
 export default function AppRoutes() {
