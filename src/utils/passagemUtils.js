@@ -50,6 +50,7 @@ export function formatarBilheteTextoTermico(passagem) {
   return [
     'NAVIA',
     'BILHETE DE PASSAGEM',
+    passagem?.segundaVia ? '*** SEGUNDA VIA ***' : null,
     '',
     `Codigo: ${passagem?.codigo || '-'}`,
     `${origem} -> ${destino}`,

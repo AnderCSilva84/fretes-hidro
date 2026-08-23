@@ -5,7 +5,7 @@ import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
 import { abrirVendaPassagemHorario, encerrarVendaPassagemHorario, getViagemById, listarPassagensPorViagem, recuperarCaixaLocalAbertoDaSaida, venderPassagem } from '../services/firebase.js'
 import { formatDateAndTimeBR } from '../utils/date.js'
-import { imprimirPassagensTermicas } from '../utils/bilheteTermico.js'
+import { imprimirPassagensTermicas, imprimirResumoCaixaTermico } from '../utils/bilheteTermico.js'
 import { calcularValorTarifa, isTarifaAntecipada } from '../utils/tarifaUtils.js'
 
 const MODALIDADES = {
@@ -69,6 +69,7 @@ export default function MapaEmbarcacao() {
   const [dadosPassageiro, setDadosPassageiro] = useState({ nome: '', documento: '' })
   const [vendendo, setVendendo] = useState(false)
   const [operandoCaixa, setOperandoCaixa] = useState(false)
+  const [reimprimindoId, setReimprimindoId] = useState('')
   const [sucesso, setSucesso] = useState('')
 
   useEffect(() => {
@@ -145,13 +146,30 @@ export default function MapaEmbarcacao() {
     setOperandoCaixa(true)
     setError('')
     try {
-      await encerrarVendaPassagemHorario(viagem.id, { empresaId, empresaNome, operadorNome: user?.nome || user?.email || 'Operador', confirmacaoManual: true })
-      setViagem((current) => ({ ...current, status: 'Encerrada', caixaFechadoEm: new Date().toISOString() }))
-      setSucesso('Caixa encerrado com sucesso.')
+      const responsavelFechamento = user?.nome || user?.displayName || user?.email || 'Operador'
+      const fechamento = await encerrarVendaPassagemHorario(viagem.id, { empresaId, empresaNome, operadorNome: responsavelFechamento, confirmacaoManual: true })
+      setViagem(fechamento.viagem)
+      await imprimirResumoCaixaTermico({ ...fechamento, responsavelFechamento })
+      setSucesso('Caixa encerrado e resumo enviado para impressao.')
     } catch (runtimeError) {
       setError(runtimeError.message || 'Não foi possível encerrar o caixa.')
     } finally {
       setOperandoCaixa(false)
+    }
+  }
+
+  async function reimprimirPassagem(passagem) {
+    if (!passagem?.id) return
+    setReimprimindoId(passagem.id)
+    setError('')
+    try {
+      await imprimirPassagensTermicas({ ...passagem, segundaVia: true })
+      setSucesso(`Segunda via do assento ${String(passagem.assentoCodigo || '-').padStart(2, '0')} enviada para impressao.`)
+      window.setTimeout(() => setSucesso(''), 2500)
+    } catch (runtimeError) {
+      setError(runtimeError.message || 'Nao foi possivel reimprimir o comprovante.')
+    } finally {
+      setReimprimindoId('')
     }
   }
 
@@ -262,7 +280,7 @@ export default function MapaEmbarcacao() {
                 {assentos.map((assento) => {
                   const config = assento.modalidade === 'livre' ? LIVRE : MODALIDADES[assento.modalidade]
                   return (
-                    <button key={assento.numero} type="button" disabled={assento.modalidade !== 'livre' || !caixaAberto} onClick={() => { setAssentoVenda(assento.numero); setError('') }} aria-label={`Assento ${assento.numero}: ${config.shortLabel}. Toque para vender.`} title={assento.passagem?.passageiroNome || (assento.modalidade === 'livre' ? (caixaAberto ? 'Toque para vender' : 'Abra o caixa para vender') : config.shortLabel)} className={`relative z-[1] flex min-h-11 items-center justify-center gap-2 rounded-xl border-2 px-2 text-sm font-extrabold transition ${assento.modalidade === 'livre' && caixaAberto ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus:ring-4 focus:ring-emerald-200' : 'cursor-not-allowed text-white disabled:opacity-65'}`} style={{ borderColor: config.color, background: assento.modalidade === 'livre' ? config.light : config.color, color: assento.modalidade === 'livre' ? config.color : 'white' }}>
+                    <button key={assento.numero} type="button" disabled={(assento.modalidade === 'livre' && !caixaAberto) || reimprimindoId === assento.passagem?.id} onClick={() => { if (assento.passagem) void reimprimirPassagem(assento.passagem); else { setAssentoVenda(assento.numero); setError('') } }} aria-label={`Assento ${assento.numero}: ${config.shortLabel}. ${assento.passagem ? 'Toque para reimprimir a segunda via.' : 'Toque para vender.'}`} title={assento.passagem ? 'Toque para reimprimir a segunda via' : (caixaAberto ? 'Toque para vender' : 'Abra o caixa para vender')} className={`relative z-[1] flex min-h-11 items-center justify-center gap-2 rounded-xl border-2 px-2 text-sm font-extrabold transition ${(assento.passagem || caixaAberto) ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus:ring-4 focus:ring-blue-200' : 'cursor-not-allowed text-white disabled:opacity-65'}`} style={{ borderColor: config.color, background: assento.modalidade === 'livre' ? config.light : config.color, color: assento.modalidade === 'livre' ? config.color : 'white' }}>
                       <span>{String(assento.numero).padStart(2, '0')}</span><span>{assento.modalidade === 'livre' ? <SeatIcon /> : config.symbol}</span>
                     </button>
                   )
@@ -271,7 +289,7 @@ export default function MapaEmbarcacao() {
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-sm font-black uppercase tracking-[0.18em] text-[#0a2d61]">Popa</div>
             </div>
 
-            <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-bold text-emerald-800">{caixaAberto ? 'Toque em qualquer assento verde para iniciar a venda nessa vaga.' : 'Abra o caixa para liberar os assentos.'}</p>
+            <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-bold text-emerald-800">{caixaAberto ? 'Assento verde vende. Assento ocupado reimprime a segunda via.' : 'Assentos ocupados continuam disponiveis para reimpressao.'}</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
               <Link to="/nova-passagem" className="flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-[#062f70] px-5 py-3 font-bold text-white shadow-[0_12px_25px_rgba(6,47,112,0.2)]">
                 <PeopleIcon className="h-5 w-5" />Voltar para venda de passagem

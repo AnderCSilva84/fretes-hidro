@@ -157,6 +157,17 @@ async function tryNativeQ2iPrint(passagens) {
   return true
 }
 
+async function printNativeQ2iText(text) {
+  const nativeBridgeAvailable = Capacitor.isNativePlatform() || Capacitor.isPluginAvailable('NaviaPrinter')
+  if (!nativeBridgeAvailable) return false
+
+  await Promise.race([
+    NaviaPrinter.print({ text, qrCode: '', feedLines: 120 }),
+    new Promise((resolve) => window.setTimeout(() => resolve({ queued: true, timeoutFallback: true }), 12000)),
+  ])
+  return true
+}
+
 function shouldSkipThermalPrintAgentAttempt() {
   if (thermalPrintAgentAvailability.available !== false) {
     return false
@@ -416,6 +427,7 @@ export function gerarHTMLBilheteTermico(passagem, options = {}) {
       <div class="header">
         <div class="brand">NAVIA</div>
         <div class="subtitle">Bilhete de Passagem</div>
+        ${passagem?.segundaVia ? '<div class="subtitle"><strong>*** SEGUNDA VIA ***</strong></div>' : ''}
       </div>
 
       <div class="route">
@@ -672,6 +684,55 @@ export async function imprimirPassagensTermicas(passagens) {
   }
 
   return popup
+}
+
+function normalizarStatusPassagem(status) {
+  return String(status || '').trim().toLowerCase()
+}
+
+function agruparContagens(itens, campo, fallback = 'Nao informado') {
+  return itens.reduce((totais, item) => {
+    const chave = String(item?.[campo] || fallback).trim() || fallback
+    totais[chave] = (totais[chave] || 0) + 1
+    return totais
+  }, {})
+}
+
+function formatarLinhasContagem(titulo, contagens) {
+  const linhas = Object.entries(contagens).sort(([a], [b]) => a.localeCompare(b))
+  return [titulo, ...linhas.map(([nome, quantidade]) => `  ${nome}: ${quantidade}`)]
+}
+
+export async function imprimirResumoCaixaTermico({ viagem, passagens = [], resumo = {}, responsavelFechamento = '' }) {
+  const validas = passagens.filter((item) => normalizarStatusPassagem(item.status) !== 'cancelada')
+  const canceladas = passagens.filter((item) => normalizarStatusPassagem(item.status) === 'cancelada')
+  const modalidades = agruparContagens(validas, 'tarifaTipo')
+  const pagamentos = agruparContagens(validas, 'formaPagamento')
+  const operadorCaixa = viagem?.caixaAbertoPorNome || viagem?.operadorNome || viagem?.operadorEmail || 'Nao informado'
+  const total = Number(resumo?.totalArrecadado ?? validas.reduce((valor, item) => valor + Number(item?.valor || 0), 0))
+  const texto = [
+    'NAVIA',
+    'RESUMO DE FECHAMENTO DE CAIXA',
+    '================================',
+    `Embarcacao: ${viagem?.embarcacaoNome || '-'}`,
+    `Rota: ${viagem?.origem || '-'} -> ${viagem?.destino || '-'}`,
+    `Viagem: ${formatDateBR(viagem?.dataViagem)} ${viagem?.horarioSaida || '-'}`,
+    `Abertura: ${formatDateAndTimeBR(viagem?.caixaAbertoEm)}`,
+    `Fechamento: ${formatDateAndTimeBR(resumo?.fechadoEm || viagem?.caixaFechadoEm || new Date().toISOString())}`,
+    `Operador do caixa: ${operadorCaixa}`,
+    `Encerrado por: ${responsavelFechamento || operadorCaixa}`,
+    '--------------------------------',
+    `Passagens validas: ${validas.length}`,
+    `Passagens canceladas: ${canceladas.length}`,
+    ...formatarLinhasContagem('POR MODALIDADE', modalidades),
+    ...formatarLinhasContagem('POR PAGAMENTO', pagamentos),
+    '--------------------------------',
+    `TOTAL ARRECADADO: R$ ${total.toFixed(2)}`,
+    '================================',
+  ].join('\n')
+
+  if (await printNativeQ2iText(texto)) return null
+  throw new Error('A impressora nativa deste terminal ainda nao esta conectada ao NAVIA.')
 }
 
 export function abrirJanelaImpressaoTermica(passagem) {
