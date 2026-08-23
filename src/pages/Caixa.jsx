@@ -4,7 +4,7 @@ import { ListIcon, MoneyIcon } from '../components/AppIcons.jsx'
 import Layout from '../components/Layout.jsx'
 import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
-import { deleteCollectionDocument, deleteHistoricoCaixaPassagem, getCollectionCount, listCaixaEntries, listCollectionOnce, listCollectionPage, listarHistoricoCaixasPassagem, listarPassagensPorViagem, obterResumoVendaPassagemHorario } from '../services/firebase.js'
+import { deleteCollectionDocument, deleteHistoricoCaixaPassagem, encerrarVendaPassagemHorario, getCollectionCount, listCaixaEntries, listCollectionOnce, listCollectionPage, listarCaixasPassagemPendentes, listarHistoricoCaixasPassagem, listarPassagensPorViagem, obterResumoVendaPassagemHorario } from '../services/firebase.js'
 import { hasFreteAccess, hasPassagemAccess, isGestor } from '../utils/accessControl.js'
 import { isTerminalEnvironment } from '../utils/appEnvironment.js'
 import { filterCaixaItemsByModuleAccess, getCaixaCategoria, getCaixaResumoFromItems, resumirCaixaPorCategoria } from '../utils/caixaAccess.js'
@@ -137,10 +137,52 @@ export default function Caixa() {
   const [viagemExpandidaId, setViagemExpandidaId] = useState('')
   const [loadingPassageirosId, setLoadingPassageirosId] = useState('')
   const [exportingHistoryId, setExportingHistoryId] = useState('')
+  const [caixasPendentes, setCaixasPendentes] = useState([])
+  const [loadingPendentes, setLoadingPendentes] = useState(Boolean(user?.rootSuperadmin))
+  const [fechandoPendenteId, setFechandoPendenteId] = useState('')
   const caixa = filtrarCaixaPorOrigem(caixaBase, filtroOrigem)
   const resumoCategorias = resumirCaixaPorCategoria(caixa)
   const resumoCaixaFiltrado = getCaixaResumoFromItems(caixa)
   const periodoResumoFiltrado = filtroOrigem === 'todos' ? periodoResumo : resumoCaixaFiltrado
+
+  useEffect(() => {
+    if (!user?.rootSuperadmin) {
+      return
+    }
+
+    let active = true
+    listarCaixasPassagemPendentes().then((items) => {
+      if (active) setCaixasPendentes(items)
+    }).catch((error) => {
+      reportRuntimeError('Caixa.listarCaixasPassagemPendentes', error)
+      if (active) setErroTela('Nao foi possivel localizar os caixas pendentes.')
+    }).finally(() => {
+      if (active) setLoadingPendentes(false)
+    })
+    return () => { active = false }
+  }, [user?.rootSuperadmin])
+
+  async function encerrarCaixaPendente(item) {
+    const confirmed = window.confirm(`Encerrar o caixa de ${item.empresaNome || 'empresa nao informada'} - ${item.origem || '-'} / ${item.destino || '-'}?`)
+    if (!confirmed) return
+
+    setFechandoPendenteId(item.id)
+    setErroTela('')
+    try {
+      await encerrarVendaPassagemHorario(item.id, {
+        rootSuperadmin: true,
+        empresaId: '',
+        empresaNome: '',
+        operadorNome: user?.nome || user?.displayName || user?.email || 'Superadmin',
+      })
+      setCaixasPendentes((current) => current.filter((caixaItem) => caixaItem.id !== item.id))
+    } catch (error) {
+      reportRuntimeError('Caixa.encerrarCaixaPendente', error, { viagemId: item.id })
+      setErroTela(error.message || 'Nao foi possivel encerrar o caixa pendente.')
+    } finally {
+      setFechandoPendenteId('')
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -578,6 +620,26 @@ export default function Caixa() {
   return (
     <Layout title="Tela de caixa" subtitle="Acompanhamento financeiro e entradas operacionais." icon={<MoneyIcon className="h-6 w-6" />}>
       <div className="space-y-6">
+        {user?.rootSuperadmin ? (
+          <PageShell title="Caixas pendentes" subtitle="Visao global para encerrar caixas abertos de qualquer empresa, inclusive registros antigos." icon={<MoneyIcon className="h-6 w-6" />}>
+            <div className="space-y-3">
+              {caixasPendentes.map((item) => (
+                <div key={item.id} className="flex flex-col gap-3 rounded-[1.4rem] border border-amber-200 bg-amber-50 p-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-950">{item.empresaNome || 'Empresa nao informada'} • {item.embarcacaoNome || 'Embarcacao nao informada'}</p>
+                    <p className="mt-1 text-sm text-slate-600">{item.origem || '-'} → {item.destino || '-'} • {item.dataViagem || 'Sem data'} {item.horarioSaida || ''}</p>
+                    <p className="mt-1 text-xs font-semibold text-amber-800">Aberto em: {formatarData(item.caixaAbertoEm)} • Status: {item.status || 'Legado'}</p>
+                  </div>
+                  <Button type="button" variant="danger" onClick={() => encerrarCaixaPendente(item)} disabled={fechandoPendenteId === item.id} className="w-full md:w-auto">
+                    {fechandoPendenteId === item.id ? 'Encerrando...' : 'Encerrar caixa'}
+                  </Button>
+                </div>
+              ))}
+              {!loadingPendentes && caixasPendentes.length === 0 ? <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">Nenhum caixa pendente em nenhuma empresa.</div> : null}
+              {loadingPendentes ? <p className="text-sm text-slate-500">Procurando caixas pendentes em todas as empresas...</p> : null}
+            </div>
+          </PageShell>
+        ) : null}
         <PageShell
           title="Filtro por periodo"
           subtitle="Defina o intervalo antes de analisar o resumo e as movimentacoes."

@@ -3331,8 +3331,12 @@ export async function encerrarVendaPassagemHorario(viagemId, actor = {}) {
     throw new Error('Horario nao encontrado para encerramento.')
   }
 
-  if (!viagem.caixaAbertoEm || viagem.caixaFechadoEm) {
+  if ((!viagem.caixaAbertoEm || viagem.caixaFechadoEm) && !actor.rootSuperadmin) {
     throw new Error('Este caixa nao esta aberto. Atualize a tela e selecione um horario com caixa aberto.')
+  }
+
+  if (viagem.caixaFechadoEm) {
+    throw new Error('Este caixa ja foi encerrado.')
   }
 
   const fechadoEm = new Date().toISOString()
@@ -3393,6 +3397,22 @@ export async function encerrarVendaPassagemHorario(viagemId, actor = {}) {
     passagens,
     resumo,
   }
+}
+
+export async function listarCaixasPassagemPendentes({ empresaId = '', empresaNome = '' } = {}) {
+  const viagens = await listCollectionOnce('viagens', { empresaId, empresaNome })
+
+  return viagens
+    .filter((item) => {
+      if (item?.caixaFechadoEm) return false
+      const status = String(item?.status || '').trim().toLowerCase()
+      return Boolean(item?.caixaAbertoEm) || ['aberta', 'embarcando'].includes(status)
+    })
+    .sort((left, right) => {
+      const leftDate = getDateFromUnknownValue(left?.caixaAbertoEm || left?.atualizadoEm || left?.criadoEm)
+      const rightDate = getDateFromUnknownValue(right?.caixaAbertoEm || right?.atualizadoEm || right?.criadoEm)
+      return Number(rightDate || 0) - Number(leftDate || 0)
+    })
 }
 
 function compararDataDesc(left, right) {
