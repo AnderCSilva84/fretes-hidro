@@ -3203,7 +3203,15 @@ export async function getViagemById(viagemId, { empresaId = '', empresaNome = ''
   }
 
   const store = readStore()
-  return filterItemsByEmpresa((store.viagens || []).filter((item) => item.id === viagemId), empresaId, empresaNome)[0] || null
+  const index = (store.viagens || []).findIndex((item) => item.id === viagemId || gerarViagemOperacionalId(item) === viagemId)
+  if (index < 0) return null
+
+  const encontrada = { ...store.viagens[index], id: viagemId }
+  if (!store.viagens[index]?.id) {
+    store.viagens[index] = encontrada
+    writeStore(store)
+  }
+  return filterItemsByEmpresa([encontrada], empresaId, empresaNome)[0] || null
 }
 
 export async function abrirVendaPassagemHorario(dados) {
