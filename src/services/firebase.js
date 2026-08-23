@@ -36,6 +36,7 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth'
+import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { enqueueOfflineAction, getOfflineQueueSummary, listOfflineQueue, pruneOfflineQueue, subscribeOfflineQueue, updateOfflineAction } from './offlineQueue.js'
 import { obterRemetenteNome } from '../utils/remetente.js'
 import { reportRuntimeError } from '../utils/runtimeDiagnostics.js'
@@ -61,11 +62,13 @@ const isConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId)
 let app = null
 let auth = null
 let db = null
+let storage = null
 let firestoreCacheEnabled = false
 
 if (isConfigured) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig)
   auth = getAuth(app)
+  storage = getStorage(app)
 
   try {
     db = initializeFirestore(app, {
@@ -594,6 +597,37 @@ function migrationDocumentId(collectionName, item, index) {
   return `migrado-${collectionName}-${String(index + 1).padStart(6, '0')}`
 }
 
+function extensionFromDataUrl(dataUrl = '') {
+  const mimeType = String(dataUrl).match(/^data:([^;,]+)/)?.[1] || 'image/jpeg'
+  return mimeType.split('/')[1]?.replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '') || 'jpg'
+}
+
+async function prepareMigrationPayload(collectionName, documentId, item) {
+  const payload = { ...item, id: documentId, migradoDoArmazenamentoLocal: true }
+  delete payload.senha
+
+  const imageFields = ['imagemDataUrl', 'imagemUrl', 'logoDataUrl', 'logoUrl']
+  const uploadedUrls = new Map()
+  for (const field of imageFields) {
+    const dataUrl = String(payload[field] || '')
+    if (!dataUrl.startsWith('data:')) continue
+
+    let downloadUrl = uploadedUrls.get(dataUrl)
+    if (!downloadUrl) {
+      const response = await fetch(dataUrl)
+      const blob = await response.blob()
+      const path = `cadastros/${collectionName}/${documentId}/${field}.${extensionFromDataUrl(dataUrl)}`
+      const reference = storageRef(storage, path)
+      await uploadBytes(reference, blob, { contentType: blob.type || 'image/jpeg' })
+      downloadUrl = await getDownloadURL(reference)
+      uploadedUrls.set(dataUrl, downloadUrl)
+    }
+    payload[field] = downloadUrl
+  }
+
+  return payload
+}
+
 export async function migrateLocalStoreToFirestore(actorUser) {
   if (!isConfigured || !db) throw new Error('Firebase nao esta configurado neste deploy.')
   if (!isRootSuperadminEmail(actorUser?.email)) throw new Error('Somente o superadmin principal pode migrar os dados locais.')
@@ -604,12 +638,12 @@ export async function migrateLocalStoreToFirestore(actorUser) {
   const operations = []
   for (const collectionName of LOCAL_MIGRATION_COLLECTIONS) {
     const items = Array.isArray(store[collectionName]) ? store[collectionName] : []
-    items.forEach((item, index) => {
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index]
       const documentId = migrationDocumentId(collectionName, item, index)
-      const payload = { ...item, id: documentId, migradoDoArmazenamentoLocal: true }
-      delete payload.senha
+      const payload = await prepareMigrationPayload(collectionName, documentId, item)
       operations.push({ collectionName, documentId, payload })
-    })
+    }
   }
 
   const resumos = store.resumos && typeof store.resumos === 'object' ? Object.entries(store.resumos) : []
