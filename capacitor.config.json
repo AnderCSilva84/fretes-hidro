@@ -1,12 +1,5 @@
 {
   "appId": "com.acsinformatica.navia",
   "appName": "NAVIA Terminal",
-  "webDir": "dist",
-  "server": {
-    "url": "https://naviaplataform.netlify.app",
-    "androidScheme": "https",
-    "allowNavigation": [
-      "naviaplataform.netlify.app"
-    ]
-  }
+  "webDir": "dist"
 }
