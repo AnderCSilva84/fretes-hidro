@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { BoatIcon, PeopleIcon } from '../components/AppIcons.jsx'
 import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
@@ -54,6 +54,7 @@ function SeatIcon() {
 
 export default function MapaEmbarcacao() {
   const { viagemId } = useParams()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
   const empresaNome = user?.empresaNome || ''
@@ -70,21 +71,36 @@ export default function MapaEmbarcacao() {
 
   useEffect(() => {
     let active = true
+    const viagemFallback = {
+      id: viagemId,
+      rotaId: searchParams.get('rotaId') || '',
+      embarcacaoId: searchParams.get('embarcacaoId') || '',
+      embarcacaoNome: searchParams.get('embarcacaoNome') || '',
+      origem: searchParams.get('origem') || '',
+      destino: searchParams.get('destino') || '',
+      dataViagem: searchParams.get('dataViagem') || '',
+      horarioSaida: searchParams.get('horarioSaida') || '',
+      capacidadeTotal: Number(searchParams.get('capacidadeTotal') || 0),
+      valorPadrao: Number(searchParams.get('valorPadrao') || 0),
+      status: 'Fechada',
+    }
+    const possuiFallback = Boolean(viagemFallback.embarcacaoId && viagemFallback.capacidadeTotal)
+
     Promise.all([
       getViagemById(viagemId, { empresaId, empresaNome }),
       listarPassagensPorViagem(viagemId, { empresaId, empresaNome }),
     ]).then(([viagemAtual, passagensAtuais]) => {
       if (!active) return
-      setViagem(viagemAtual)
+      setViagem(viagemAtual || (possuiFallback ? viagemFallback : null))
       setPassagens((passagensAtuais || []).filter((item) => String(item.status || '').toLowerCase() !== 'cancelada' && !isTarifaAntecipada(item.tarifaTipo)))
-      if (!viagemAtual) setError('Viagem não encontrada ou indisponível para esta empresa.')
+      if (!viagemAtual && !possuiFallback) setError('Viagem não encontrada ou indisponível para esta empresa.')
     }).catch((runtimeError) => {
       if (active) setError(runtimeError.message || 'Não foi possível carregar o mapa da embarcação.')
     }).finally(() => {
       if (active) setLoading(false)
     })
     return () => { active = false }
-  }, [empresaId, empresaNome, viagemId])
+  }, [empresaId, empresaNome, searchParams, viagemId])
 
   const capacidade = Math.max(0, Number(viagem?.capacidadeTotal || 0))
   const assentos = useMemo(() => montarAssentos(capacidade, passagens), [capacidade, passagens])

@@ -1202,7 +1202,17 @@ export default function NovaPassagem() {
             <Resumo label="Total da venda" value={`R$ ${totalVendaAtual.toFixed(2)}`} />
           </div>
           {viagemSelecionada ? (
-            <Link to={`/mapa-embarcacao/${viagemSelecionada.id}`} className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#0a2d61] px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(10,45,97,0.18)]">
+            <Link to={`/mapa-embarcacao/${viagemSelecionada.id}?${new URLSearchParams({
+              rotaId: viagemSelecionada.rotaId || '',
+              embarcacaoId: viagemSelecionada.embarcacaoId || '',
+              embarcacaoNome: viagemSelecionada.embarcacaoNome || '',
+              origem: viagemSelecionada.origem || '',
+              destino: viagemSelecionada.destino || '',
+              dataViagem: viagemSelecionada.dataViagem || '',
+              horarioSaida: viagemSelecionada.horarioSaida || '',
+              capacidadeTotal: String(viagemSelecionada.capacidadeTotal || 0),
+              valorPadrao: String(viagemSelecionada.valorPadrao || 0),
+            }).toString()}`} className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#0a2d61] px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(10,45,97,0.18)]">
               <BoatIcon className="h-5 w-5" /> Abrir mapa de assentos
             </Link>
           ) : null}
