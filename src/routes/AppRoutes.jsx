@@ -106,9 +106,7 @@ export default function AppRoutes() {
               <Route path="/passagens" element={<Passagens />} />
               <Route path="/scanner-embarque" element={<ScannerEmbarque />} />
               <Route path="/mapa-embarcacao/:viagemId" element={<MapaEmbarcacao />} />
-              <Route element={<ProtectedRoute requiredEnvironment={APP_ENVIRONMENTS.DESKTOP} />}>
-                <Route path="/manifesto/:viagemId" element={<ManifestoViagem />} />
-              </Route>
+              <Route path="/manifesto/:viagemId" element={<ManifestoViagem />} />
             </Route>
             <Route path="/caixa" element={<Caixa />} />
           </Route>

@@ -7,16 +7,20 @@ import PageShell from '../components/PageShell.jsx'
 import useAuth from '../context/useAuth.js'
 import { getViagemById, listarPassagensPorViagem } from '../services/firebase.js'
 import { formatDateAndTimeBR } from '../utils/date.js'
+import { imprimirPassagensTermicas } from '../utils/bilheteTermico.js'
 import { abrirManifestoViagem } from '../utils/manifestoViagemPdf.js'
 
 export default function ManifestoViagem() {
   const { viagemId } = useParams()
   const { user } = useAuth()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
-  const empresaNome = user?.empresaNome || ''
+  const empresaNome = user?.rootSuperadmin ? '' : user?.empresaNome || ''
   const [viagem, setViagem] = useState(null)
   const [passagens, setPassagens] = useState([])
   const [loading, setLoading] = useState(true)
+  const [reimprimindoId, setReimprimindoId] = useState('')
+  const [mensagem, setMensagem] = useState('')
+  const [erro, setErro] = useState('')
 
   useEffect(() => {
     let active = true
@@ -48,10 +52,24 @@ export default function ManifestoViagem() {
     cancelado: passagens.filter((item) => item.status === 'Cancelada').length,
   }), [passagens])
 
+  async function reimprimir(item) {
+    setReimprimindoId(item.id)
+    setErro('')
+    setMensagem('')
+    try {
+      await imprimirPassagensTermicas({ ...item, segundaVia: true })
+      setMensagem(`Segunda via do assento ${item.assentoCodigo || '-'} enviada para impressao.`)
+    } catch (runtimeError) {
+      setErro(runtimeError.message || 'Nao foi possivel reimprimir o comprovante.')
+    } finally {
+      setReimprimindoId('')
+    }
+  }
+
   return (
-    <Layout title="Manifesto da viagem" subtitle="Lista operacional de passageiros por partida." icon={<ListIcon className="h-6 w-6" />}>
+    <Layout title="Passageiros do caixa" subtitle="Passagens da embarcacao selecionada." icon={<ListIcon className="h-6 w-6" />}>
       <PageShell
-        title="Passageiros da viagem"
+        title="Passageiros do caixa atual"
         subtitle={viagem ? `${viagem.origem} - ${viagem.destino} • ${formatDateAndTimeBR(viagem.dataViagem, viagem.horarioSaida)}` : 'Carregando viagem...'}
         icon={<ListIcon className="h-6 w-6" />}
         actions={[
@@ -60,6 +78,8 @@ export default function ManifestoViagem() {
           </Button>,
         ]}
       >
+        {mensagem ? <div className="mb-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{mensagem}</div> : null}
+        {erro ? <div className="mb-4 rounded-2xl bg-rose-50 p-4 text-sm font-bold text-rose-700">{erro}</div> : null}
         <div className="grid gap-4 md:grid-cols-4">
           <ResumoCard label="Vendidos" value={resumo.vendido} />
           <ResumoCard label="Embarcados" value={resumo.embarcado} />
@@ -72,14 +92,17 @@ export default function ManifestoViagem() {
             <div key={item.id} className="rounded-[1.5rem] border border-blue-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <p className="font-bold text-slate-950">{item.passageiroNome}</p>
+                  <p className="font-bold text-slate-950">Assento {item.assentoCodigo || '-'} • {item.passageiroNome || 'Passageiro nao informado'}</p>
                   <p className="text-sm text-slate-500">{item.passageiroDocumento || 'Sem documento'}</p>
                 </div>
                 <div className="grid gap-2 text-sm sm:flex sm:flex-wrap sm:items-center">
                   <span className="rounded-full bg-blue-50 px-3 py-1 font-bold text-[#1657d8]">{item.status}</span>
                   <span>R$ {Number(item.valor || 0).toFixed(2)}</span>
                   <span>{item.formaPagamento || '-'}</span>
-                  <span>{item.embarcadoEm || '-'}</span>
+                  <span>{item.tarifaTipo || '-'}</span>
+                  <Button type="button" variant="secondary" onClick={() => reimprimir(item)} disabled={reimprimindoId === item.id || item.status === 'Cancelada'}>
+                    {reimprimindoId === item.id ? 'Reimprimindo...' : 'Reimprimir 2ª via'}
+                  </Button>
                 </div>
               </div>
             </div>

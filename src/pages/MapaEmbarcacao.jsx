@@ -294,7 +294,7 @@ export default function MapaEmbarcacao() {
               <Link to="/nova-passagem" className="flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-[#062f70] px-5 py-3 font-bold text-white shadow-[0_12px_25px_rgba(6,47,112,0.2)]">
                 <PeopleIcon className="h-5 w-5" />Voltar para venda de passagem
               </Link>
-              <Link to={`/manifesto/${viagemId}`} className="flex min-h-14 items-center justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 font-bold text-[#0a2d61]">Ver passageiros ({passagens.length})</Link>
+              <Link to={`/manifesto/${viagemId}`} className="flex min-h-14 items-center justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 font-bold text-[#0a2d61]">Ver passageiros do caixa ({passagens.length})</Link>
             </div>
           </div> : null}
         </section>
