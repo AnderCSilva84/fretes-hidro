@@ -144,11 +144,14 @@ async function tryNativeQ2iPrint(passagens) {
   if (!nativeBridgeAvailable) return false
 
   for (const passagem of passagens) {
-    await NaviaPrinter.print({
-      text: formatarBilheteTextoTermico(passagem),
-      qrCode: String(passagem?.bilheteUrl || passagem?.codigo || ''),
-      feedLines: 120,
-    })
+    await Promise.race([
+      NaviaPrinter.print({
+        text: formatarBilheteTextoTermico(passagem),
+        qrCode: String(passagem?.bilheteUrl || passagem?.codigo || ''),
+        feedLines: 120,
+      }),
+      new Promise((resolve) => window.setTimeout(() => resolve({ queued: true, timeoutFallback: true }), 12000)),
+    ])
   }
 
   return true

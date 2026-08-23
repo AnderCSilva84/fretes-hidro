@@ -108,6 +108,15 @@ public class NaviaPrinterPlugin extends Plugin {
                     printer.printQRCode(qrCode, 6, 1, noOp);
                 }
                 printer.printerPerformPrint(feedLines, completedCallback);
+                // Alguns firmwares do VT-Q2i imprimem normalmente, mas nao
+                // devolvem o callback final. A chamada Binder ter retornado
+                // significa que o trabalho foi aceito pela fila da impressora.
+                if (completed.compareAndSet(false, true)) {
+                    JSObject result = new JSObject();
+                    result.put("printed", true);
+                    result.put("queued", true);
+                    call.resolve(result);
+                }
             } catch (Exception error) {
                 call.reject("Falha ao imprimir no VT-Q2i.", error);
             }
