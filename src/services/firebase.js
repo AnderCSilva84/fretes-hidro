@@ -3649,9 +3649,14 @@ export async function listarCaixasPassagemAbertos({ empresaId = '', empresaNome 
     })
 }
 
-export async function obterCaixaPassagemAberto({ empresaId = '', empresaNome = '' } = {}) {
+export async function obterCaixaPassagemAberto({ empresaId = '', empresaNome = '', operadorEmail = '' } = {}) {
   const itens = await listarCaixasPassagemAbertos({ empresaId, empresaNome })
-  return itens[0] || null
+  const emailNormalizado = String(operadorEmail || '').trim().toLowerCase()
+  if (!emailNormalizado) return itens[0] || null
+
+  return itens.find((item) => String(item?.operadorEmail || '').trim().toLowerCase() === emailNormalizado)
+    || itens[0]
+    || null
 }
 
 export async function listarHistoricoCaixasPassagem({ empresaId = '', empresaNome = '', dataViagem = '' } = {}) {

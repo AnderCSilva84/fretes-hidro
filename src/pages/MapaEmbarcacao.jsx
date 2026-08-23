@@ -58,7 +58,7 @@ export default function MapaEmbarcacao() {
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const empresaId = user?.rootSuperadmin ? '' : user?.empresaId || ''
-  const empresaNome = user?.empresaNome || ''
+  const empresaNome = user?.rootSuperadmin ? '' : user?.empresaNome || ''
   const [viagem, setViagem] = useState(null)
   const [passagens, setPassagens] = useState([])
   const [loading, setLoading] = useState(true)

@@ -51,7 +51,8 @@ function HomeRedirect() {
 
     obterCaixaPassagemAberto({
       empresaId: user.rootSuperadmin ? '' : user.empresaId || '',
-      empresaNome: user.empresaNome || '',
+      empresaNome: user.rootSuperadmin ? '' : user.empresaNome || '',
+      operadorEmail: user.email || '',
     }).then((caixaAberto) => {
       if (active) setResolvedRoute({ userKey, target: caixaAberto?.id ? `/mapa-embarcacao/${caixaAberto.id}` : fallback })
     }).catch(() => {
