@@ -261,8 +261,6 @@ export default function MapaEmbarcacao() {
           </div>
 
           {error ? <div className="m-5 rounded-2xl bg-rose-50 p-4 text-sm font-medium text-rose-700">{error}</div> : null}
-          {sucesso ? <div className="m-5 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{sucesso}</div> : null}
-
           {!error && !loading ? <div className="px-3 pb-4 sm:px-4 sm:pb-5">
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
               <Metric label="Livres" value={totais.livre || 0} color={LIVRE.color} symbol="♿" />
@@ -313,6 +311,12 @@ export default function MapaEmbarcacao() {
           </div> : null}
         </section>
       </div>
+
+      {sucesso ? (
+        <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-4 top-24 z-[60] mx-auto max-w-md rounded-2xl border border-emerald-200 bg-emerald-600 px-4 py-3 text-center text-sm font-bold text-white shadow-[0_14px_35px_rgba(5,150,105,0.3)]">
+          {sucesso}
+        </div>
+      ) : null}
 
       {assentoVenda ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) setAssentoVenda(null) }}>
