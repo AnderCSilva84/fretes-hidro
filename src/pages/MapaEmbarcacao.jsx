@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { BoatIcon, PeopleIcon } from '../components/AppIcons.jsx'
 import Layout from '../components/Layout.jsx'
 import useAuth from '../context/useAuth.js'
-import { abrirVendaPassagemHorario, encerrarVendaPassagemHorario, getViagemById, listarPassagensPorViagem, venderPassagem } from '../services/firebase.js'
+import { abrirVendaPassagemHorario, encerrarVendaPassagemHorario, getViagemById, listarPassagensPorViagem, recuperarCaixaLocalAbertoDaSaida, venderPassagem } from '../services/firebase.js'
 import { formatDateAndTimeBR } from '../utils/date.js'
 import { calcularValorTarifa, isTarifaAntecipada } from '../utils/tarifaUtils.js'
 
@@ -90,9 +90,13 @@ export default function MapaEmbarcacao() {
     Promise.all([
       getViagemById(viagemId, { empresaId, empresaNome }),
       listarPassagensPorViagem(viagemId, { empresaId, empresaNome }),
-    ]).then(([viagemAtual, passagensAtuais]) => {
+    ]).then(async ([viagemAtual, passagensAtuais]) => {
       if (!active) return
-      setViagem(viagemAtual || (possuiFallback ? viagemFallback : null))
+      const caixaLocalRecuperado = !viagemAtual && possuiFallback
+        ? await recuperarCaixaLocalAbertoDaSaida(viagemId, viagemFallback)
+        : null
+      if (!active) return
+      setViagem(viagemAtual || caixaLocalRecuperado || (possuiFallback ? viagemFallback : null))
       setPassagens((passagensAtuais || []).filter((item) => String(item.status || '').toLowerCase() !== 'cancelada' && !isTarifaAntecipada(item.tarifaTipo)))
       if (!viagemAtual && !possuiFallback) setError('Viagem não encontrada ou indisponível para esta empresa.')
     }).catch((runtimeError) => {

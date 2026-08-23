@@ -3214,6 +3214,25 @@ export async function getViagemById(viagemId, { empresaId = '', empresaNome = ''
   return filterItemsByEmpresa([encontrada], empresaId, empresaNome)[0] || null
 }
 
+export async function recuperarCaixaLocalAbertoDaSaida(viagemId, dados = {}) {
+  if (isConfigured && db) return null
+
+  const store = readStore()
+  const index = (store.viagens || []).findIndex((item) => (
+    !item?.caixaFechadoEm
+    && Boolean(item?.caixaAbertoEm)
+    && String(item?.embarcacaoId || '') === String(dados.embarcacaoId || '')
+    && String(item?.dataViagem || '') === String(dados.dataViagem || '')
+    && String(item?.horarioSaida || '') === String(dados.horarioSaida || '')
+  ))
+  if (index < 0) return null
+
+  const recuperada = { ...store.viagens[index], id: viagemId }
+  store.viagens[index] = recuperada
+  writeStore(store)
+  return recuperada
+}
+
 export async function abrirVendaPassagemHorario(dados) {
   const viagemId = dados.viagemId || gerarViagemOperacionalId(dados)
   const agora = new Date().toISOString()
